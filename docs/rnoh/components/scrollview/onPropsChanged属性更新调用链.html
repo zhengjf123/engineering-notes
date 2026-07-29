@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 Fabric Mutation、setProps、新旧属性比较、onFinalizeUpdates 和 ArkUI 属性下发。">
+    <title>onPropsChanged 属性更新调用链 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="../../index.html" aria-current="page">RNOH</a>
+          <a href="../../../cpp/index.html">C++</a>
+          <a href="../../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="ScrollView 专题">
+        <div>
+          <p class="side-label">ScrollView 专题</p>
+          <nav class="side-nav">
+            <a href="index.html">专题首页</a>
+            <a href="rn72%E6%BB%9A%E5%8A%A8%E7%BB%84%E4%BB%B6%E9%80%BB%E8%BE%91.html">完整控制流程</a>
+<a href="%E8%A7%A6%E6%91%B8%E5%BA%8F%E5%88%97%E4%B8%8E%E7%82%B9%E5%87%BB%E6%BB%9A%E5%8A%A8%E5%85%B3%E7%B3%BB.html">触摸序列</a>
+<a href="onPropsChanged%E5%B1%9E%E6%80%A7%E6%9B%B4%E6%96%B0%E8%B0%83%E7%94%A8%E9%93%BE.html" aria-current="page">Props 更新</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="../index.html">组件</a><span aria-hidden="true">/</span>
+          <a href="index.html">ScrollView</a><span aria-hidden="true">/</span>
+          <span>Props 更新</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>Props 专题</strong> · 基于 RN 0.72 鸿蒙当前工作树源码</span>
+          <a href="index.html">返回专题目录</a>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="onpropschanged-属性更新调用链"><code>onPropsChanged</code> 属性更新调用链</h1>
+<p><a href="rn72滚动组件逻辑.html">返回《RN 0.72 鸿蒙 ScrollView 完整控制流程》</a></p>
+<blockquote>
+<p>本文基于当前 <code>D:\rn72_0610\r</code> 工作树源码，专门解释 <code>onPropsChanged</code> 是谁调用的、什么时候调用，以及 ScrollView 如何通过它把 RN props 下发到 ArkUI。</p>
+</blockquote>
+<h2 id="1-先记住结论"><a class="heading-anchor" href="#1-%E5%85%88%E8%AE%B0%E4%BD%8F%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>1. 先记住结论</h2>
+<p><code>onPropsChanged</code> 是原生 <code>ComponentInstance</code> 的 <strong>Props 应用入口</strong>：</p>
+<blockquote>
+<p>Fabric 把一份新的组件属性快照交给原生组件，<code>onPropsChanged</code> 比较新旧属性，并把需要生效的配置设置到 ArkUI 节点。</p>
+</blockquote>
+<p>它不是：</p>
+<ul>
+<li>JS 直接调用的函数；</li>
+<li>DOWN、MOVE、UP 等触摸回调；</li>
+<li>ScrollView 每滚动一帧都会执行的函数；</li>
+<li>“某一个具体 prop 肯定改变了”的通知。</li>
+</ul>
+<hr>
+<h2 id="2-正常-fabric-更新的完整调用链"><a class="heading-anchor" href="#2-%E6%AD%A3%E5%B8%B8-fabric-%E6%9B%B4%E6%96%B0%E7%9A%84%E5%AE%8C%E6%95%B4%E8%B0%83%E7%94%A8%E9%93%BE" aria-label="链接到本节">#</a>2. 正常 Fabric 更新的完整调用链</h2>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TD
+    JS[&quot;JS render&lt;br/&gt;生成新的 ScrollView props&quot;]
+    Shadow[&quot;Fabric 创建新的 Props / ShadowTree&quot;]
+    Commit[&quot;ShadowTree Commit&quot;]
+    Mutation[&quot;生成 Create 或 Update Mutation&quot;]
+    Mount[&quot;MountingManagerCAPI::handleMutation&quot;]
+    Update[&quot;updateComponentWithShadowView&quot;]
+    SetProps[&quot;CppComponentInstance::setProps&quot;]
+    Callback[&quot;ScrollViewComponentInstance::onPropsChanged&quot;]
+    Base[&quot;CppComponentInstance::onPropsChanged&lt;br/&gt;处理公共 ViewProps&quot;]
+    Scroll[&quot;处理 ScrollView 专有 props&quot;]
+    ArkUI[&quot;ScrollNode&lt;br/&gt;设置 NODE_SCROLL_*&quot;]
+    Save[&quot;m_props = newProps&quot;]
+    Finalize[&quot;finalizeUpdates / onFinalizeUpdates&quot;]
+
+    JS --&gt; Shadow --&gt; Commit --&gt; Mutation --&gt; Mount --&gt; Update --&gt; SetProps --&gt; Callback
+    Callback --&gt; Base --&gt; ArkUI
+    Callback --&gt; Scroll --&gt; ArkUI
+    ArkUI --&gt; Save --&gt; Finalize</div><pre class="mermaid-fallback">flowchart TD
+    JS[&quot;JS render&lt;br/&gt;生成新的 ScrollView props&quot;]
+    Shadow[&quot;Fabric 创建新的 Props / ShadowTree&quot;]
+    Commit[&quot;ShadowTree Commit&quot;]
+    Mutation[&quot;生成 Create 或 Update Mutation&quot;]
+    Mount[&quot;MountingManagerCAPI::handleMutation&quot;]
+    Update[&quot;updateComponentWithShadowView&quot;]
+    SetProps[&quot;CppComponentInstance::setProps&quot;]
+    Callback[&quot;ScrollViewComponentInstance::onPropsChanged&quot;]
+    Base[&quot;CppComponentInstance::onPropsChanged&lt;br/&gt;处理公共 ViewProps&quot;]
+    Scroll[&quot;处理 ScrollView 专有 props&quot;]
+    ArkUI[&quot;ScrollNode&lt;br/&gt;设置 NODE_SCROLL_*&quot;]
+    Save[&quot;m_props = newProps&quot;]
+    Finalize[&quot;finalizeUpdates / onFinalizeUpdates&quot;]
+
+    JS --&gt; Shadow --&gt; Commit --&gt; Mutation --&gt; Mount --&gt; Update --&gt; SetProps --&gt; Callback
+    Callback --&gt; Base --&gt; ArkUI
+    Callback --&gt; Scroll --&gt; ArkUI
+    ArkUI --&gt; Save --&gt; Finalize</pre></div>
+<p>普通声明式更新可以概括为：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">JS props 变化
+-&gt; Fabric 生成新的 Props
+-&gt; ShadowTree commit
+-&gt; Create / Update Mutation
+-&gt; MountingManagerCAPI
+-&gt; ComponentInstance::setProps()
+-&gt; onPropsChanged()
+-&gt; ScrollNode / ArkUI 属性</code></pre></div>
+<h3 id="2-1-首次创建也会调用"><a class="heading-anchor" href="#2-1-%E9%A6%96%E6%AC%A1%E5%88%9B%E5%BB%BA%E4%B9%9F%E4%BC%9A%E8%B0%83%E7%94%A8" aria-label="链接到本节">#</a>2.1 首次创建也会调用</h3>
+<p><code>MountingManagerCAPI::handleMutation()</code> 处理 <code>Create</code> 时：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">case facebook::react::ShadowViewMutation::Create: {
+  // 创建 ComponentInstance
+  updateComponentWithShadowView(componentInstance, newChild);
+  break;
+}</code></pre></div>
+<p>所以首次挂载不是绕过 <code>onPropsChanged</code>，而是同样经过：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">Create
+-&gt; updateComponentWithShadowView
+-&gt; setProps
+-&gt; onPropsChanged</code></pre></div>
+<p>此时组件还没有旧属性，通常表现为：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">m_props == nullptr</code></pre></div>
+<h3 id="2-2-后续-update-也会调用"><a class="heading-anchor" href="#2-2-%E5%90%8E%E7%BB%AD-update-%E4%B9%9F%E4%BC%9A%E8%B0%83%E7%94%A8" aria-label="链接到本节">#</a>2.2 后续 Update 也会调用</h3>
+<p>处理 <code>Update Mutation</code> 时：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">case facebook::react::ShadowViewMutation::Update: {
+  auto componentInstance =
+      m_componentInstanceRegistry-&gt;findByTag(
+          mutation.newChildShadowView.tag);
+
+  if (componentInstance != nullptr) {
+    updateComponentWithShadowView(
+        componentInstance,
+        mutation.newChildShadowView);
+  }
+  break;
+}</code></pre></div>
+<p><code>Create</code> 和 <code>Update</code> 最终汇入同一个更新函数。</p>
+<hr>
+<h2 id="3-mounting-阶段的实际更新顺序"><a class="heading-anchor" href="#3-mounting-%E9%98%B6%E6%AE%B5%E7%9A%84%E5%AE%9E%E9%99%85%E6%9B%B4%E6%96%B0%E9%A1%BA%E5%BA%8F" aria-label="链接到本节">#</a>3. Mounting 阶段的实际更新顺序</h2>
+<p><code>MountingManagerCAPI::updateComponentWithShadowView()</code> 当前顺序是：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">componentInstance-&gt;setShadowView(shadowView);
+componentInstance-&gt;setLayout(shadowView.layoutMetrics);
+componentInstance-&gt;setEventEmitter(shadowView.eventEmitter);
+componentInstance-&gt;setState(shadowView.state);
+componentInstance-&gt;setProps(shadowView.props);</code></pre></div>
+<p>也就是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">setShadowView
+-&gt; setLayout
+-&gt; setEventEmitter
+-&gt; setState
+-&gt; setProps</code></pre></div>
+<p><code>setProps()</code> 才是 <code>onPropsChanged()</code> 的直接调用者。</p>
+<p>这个顺序意味着进入 <code>onPropsChanged</code> 时：</p>
+<ul>
+<li>新的 layout 已经执行过 <code>onLayoutChanged</code>；</li>
+<li>新的 state 已经执行过 <code>onStateChanged</code>；</li>
+<li>新的 event emitter 已经设置；</li>
+<li>父子 INSERT 关系不一定已经全部建立。</li>
+</ul>
+<p>最后一点解释了为什么部分依赖父子结构的逻辑不能立即放在 <code>onPropsChanged</code> 中。</p>
+<hr>
+<h2 id="4-为什么回调里可以比较新旧-props"><a class="heading-anchor" href="#4-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%9B%9E%E8%B0%83%E9%87%8C%E5%8F%AF%E4%BB%A5%E6%AF%94%E8%BE%83%E6%96%B0%E6%97%A7-props" aria-label="链接到本节">#</a>4. 为什么回调里可以比较新旧 props</h2>
+<p>关键代码位于 <code>CppComponentInstance::setProps()</code>：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">void setProps(facebook::react::Props::Shared props) final {
+  auto newProps =
+      std::dynamic_pointer_cast&lt;const ConcreteProps&gt;(props);
+
+  if (!newProps) {
+    return;
+  }
+
+  this-&gt;onPropsChanged(newProps);
+  m_props = newProps;
+}</code></pre></div>
+<p>调用顺序是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">onPropsChanged(newProps)
+        ↓
+m_props = newProps</code></pre></div>
+<p>因此在回调执行期间：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">props   = 本次传入的新属性
+m_props = 上一次已经保存的旧属性</code></pre></div>
+<p>这是一种有意设计，而不是赋值遗漏。</p>
+<p>ScrollView 因此可以这样判断：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">if (!m_props ||
+    props-&gt;contentOffset != m_props-&gt;contentOffset) {
+  // 首次挂载，或者 contentOffset 确实改变
+}</code></pre></div>
+<p>回调结束后，<code>setProps()</code> 才把 <code>m_props</code> 更新为本次的 <code>newProps</code>。</p>
+<hr>
+<h2 id="5-scrollview-的-onpropschanged-分成两层"><a class="heading-anchor" href="#5-scrollview-%E7%9A%84-onpropschanged-%E5%88%86%E6%88%90%E4%B8%A4%E5%B1%82" aria-label="链接到本节">#</a>5. ScrollView 的 <code>onPropsChanged</code> 分成两层</h2>
+<p>ScrollView 重写方法后，首先调用基类：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">void ScrollViewComponentInstance::onPropsChanged(
+    SharedConcreteProps const&amp; props) {
+  CppComponentInstance::onPropsChanged(props);
+
+  // ScrollView 专有属性
+}</code></pre></div>
+<h3 id="5-1-基类处理公共-viewprops"><a class="heading-anchor" href="#5-1-%E5%9F%BA%E7%B1%BB%E5%A4%84%E7%90%86%E5%85%AC%E5%85%B1-viewprops" aria-label="链接到本节">#</a>5.1 基类处理公共 ViewProps</h3>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">CppComponentInstance::onPropsChanged(props);</code></pre></div>
+<p>这一层负责 View 通用能力，例如：</p>
+<ul>
+<li>backgroundColor；</li>
+<li>border；</li>
+<li>transform；</li>
+<li>opacity；</li>
+<li>accessibility；</li>
+<li>pointerEvents；</li>
+<li>阴影和圆角等。</li>
+</ul>
+<p>如果派生组件重写 <code>onPropsChanged()</code> 却漏掉基类调用，这些公共 View 属性可能无法下发。</p>
+<h3 id="5-2-scrollview-处理滚动专有属性"><a class="heading-anchor" href="#5-2-scrollview-%E5%A4%84%E7%90%86%E6%BB%9A%E5%8A%A8%E4%B8%93%E6%9C%89%E5%B1%9E%E6%80%A7" aria-label="链接到本节">#</a>5.2 ScrollView 处理滚动专有属性</h3>
+<p>随后 <code>ScrollViewComponentInstance</code> 把滚动属性设置到 <code>m_scrollNode</code>：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">m_scrollNode.setHorizontal(isHorizontal(props))
+    .setFriction(
+        getFrictionFromDecelerationRate(
+            props-&gt;decelerationRate))
+    .setScrollBarDisplayMode(...)
+    .setScrollBarColor(...)
+    .setEnablePaging(props-&gt;pagingEnabled);</code></pre></div>
+<p>主要包括：</p>
+<table>
+<thead>
+<tr>
+<th>RN prop / 配置</th>
+<th>原生处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>horizontal</code></td>
+<td>设置滚动方向</td>
+</tr>
+<tr>
+<td><code>decelerationRate</code></td>
+<td>转换成 ArkUI friction</td>
+</tr>
+<tr>
+<td><code>shows*ScrollIndicator</code></td>
+<td>设置滚动条显示模式</td>
+</tr>
+<tr>
+<td><code>indicatorStyle</code></td>
+<td>设置滚动条颜色</td>
+</tr>
+<tr>
+<td><code>pagingEnabled</code></td>
+<td>设置 ArkUI paging</td>
+</tr>
+<tr>
+<td><code>bounces</code> / <code>alwaysBounce*</code></td>
+<td>设置 edge effect</td>
+</tr>
+<tr>
+<td><code>overScrollMode</code></td>
+<td>覆盖默认回弹策略</td>
+</tr>
+<tr>
+<td><code>nestedScrollEnabled</code></td>
+<td>保存嵌套滚动配置</td>
+</tr>
+<tr>
+<td><code>flingSpeedLimit</code></td>
+<td>设置最大 fling 速度</td>
+</tr>
+<tr>
+<td><code>contentOffset</code></td>
+<td>变化时调用一次非动画 <code>scrollTo</code></td>
+</tr>
+<tr>
+<td><code>snapToOffsets</code> / <code>snapToInterval</code></td>
+<td>更新 ArkUI snap</td>
+</tr>
+<tr>
+<td><code>centerContent</code></td>
+<td>更新内容对齐方式</td>
+</tr>
+<tr>
+<td><code>scrollEventThrottle</code></td>
+<td>保存 JS scroll 事件限流值</td>
+</tr>
+</tbody></table>
+<p>最终多数配置经由：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ScrollViewComponentInstance
+-&gt; ScrollNode
+-&gt; NativeNodeApi
+-&gt; NODE_SCROLL_* 属性
+-&gt; ArkUI Scroll</code></pre></div>
+<hr>
+<h2 id="6-onpropschanged-不代表-props-一定真的变了"><a class="heading-anchor" href="#6-onpropschanged-%E4%B8%8D%E4%BB%A3%E8%A1%A8-props-%E4%B8%80%E5%AE%9A%E7%9C%9F%E7%9A%84%E5%8F%98%E4%BA%86" aria-label="链接到本节">#</a>6. <code>onPropsChanged</code> 不代表 props 一定真的变了</h2>
+<p>名字容易让人产生下面的理解：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">进入 onPropsChanged
+= 某个 prop 肯定变化</code></pre></div>
+<p>这个理解不够准确。</p>
+<p>Fabric 的 <code>Update Mutation</code> 可能由以下内容变化引起：</p>
+<ul>
+<li>props；</li>
+<li>layout；</li>
+<li>state；</li>
+<li>event emitter；</li>
+<li>ShadowView 的其他信息。</li>
+</ul>
+<p>而 <code>updateComponentWithShadowView()</code> 对 Update 会统一执行：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">componentInstance-&gt;setProps(shadowView.props);</code></pre></div>
+<p>所以即使本次 Update 的主要原因是 layout 或 state，<code>onPropsChanged</code> 仍可能被调用。</p>
+<p>判断某个属性是否真正变化，应显式比较：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">if (!m_props || props-&gt;xxx != m_props-&gt;xxx) {
+  // 首次挂载，或者 xxx 的值确实发生变化
+}</code></pre></div>
+<p>同时也要注意，当前 ScrollView 对部分 ArkUI setter 是无条件调用，对部分属性才做新旧值比较。因此不能用 <code>onPropsChanged</code> 的调用次数直接推断某个具体属性变化了多少次。</p>
+<hr>
+<h2 id="7-onfinalizeupdates-为什么不能完全省掉"><a class="heading-anchor" href="#7-onfinalizeupdates-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E8%83%BD%E5%AE%8C%E5%85%A8%E7%9C%81%E6%8E%89" aria-label="链接到本节">#</a>7. <code>onFinalizeUpdates</code> 为什么不能完全省掉</h2>
+<p>处理完一个 mutation 批次后，MountingManager 还会调用：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">finalizeUpdates()
+-&gt; onFinalizeUpdates()</code></pre></div>
+<p>ScrollView 的 <code>scrollEnabled</code> 最终状态还依赖：</p>
+<ul>
+<li><code>scrollEnabled</code> prop；</li>
+<li>Native Responder 是否阻塞；</li>
+<li>是否处于嵌套 ScrollView；</li>
+<li><code>nestedScrollEnabled</code>；</li>
+<li>INSERT 后建立的真实父子关系。</li>
+</ul>
+<p>因此它在 <code>onFinalizeUpdates()</code> 中计算：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">auto newEnableScrollInteraction =
+    isEnableScrollInteraction(
+        m_props &amp;&amp; m_props-&gt;scrollEnabled);
+
+if (newEnableScrollInteraction !=
+    m_enableScrollInteraction) {
+  m_enableScrollInteraction =
+      newEnableScrollInteraction;
+
+  m_scrollNode.setEnableScrollInteraction(
+      m_enableScrollInteraction);
+}</code></pre></div>
+<p>两者可以这样区分：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">onPropsChanged
+负责读取、比较和下发属性
+
+onFinalizeUpdates
+等本批 Mutation 和父子结构处理完成后，
+再执行依赖完整组件树的最终决策</code></pre></div>
+<hr>
+<h2 id="8-native-animated-还有一条同步入口"><a class="heading-anchor" href="#8-native-animated-%E8%BF%98%E6%9C%89%E4%B8%80%E6%9D%A1%E5%90%8C%E6%AD%A5%E5%85%A5%E5%8F%A3" aria-label="链接到本节">#</a>8. Native Animated 还有一条同步入口</h2>
+<p>除正常 Fabric commit 外，Native Animated 可以在主线程同步更新 View：</p>
+<div class="mermaid-wrap"><div class="mermaid">flowchart LR
+    Animated[&quot;NativeAnimatedTurboModule&quot;]
+    Sync[&quot;RNInstanceCAPI::&lt;br/&gt;synchronouslyUpdateViewOnUIThread&quot;]
+    Update[&quot;MountingManagerCAPI::updateView&quot;]
+    Clone[&quot;cloneProps&lt;br/&gt;旧属性 + 部分更新&quot;]
+    Set[&quot;ComponentInstance::setProps&quot;]
+    Changed[&quot;onPropsChanged&quot;]
+    Finalize[&quot;finalizeUpdates&quot;]
+
+    Animated --&gt; Sync --&gt; Update --&gt; Clone --&gt; Set --&gt; Changed --&gt; Finalize</div><pre class="mermaid-fallback">flowchart LR
+    Animated[&quot;NativeAnimatedTurboModule&quot;]
+    Sync[&quot;RNInstanceCAPI::&lt;br/&gt;synchronouslyUpdateViewOnUIThread&quot;]
+    Update[&quot;MountingManagerCAPI::updateView&quot;]
+    Clone[&quot;cloneProps&lt;br/&gt;旧属性 + 部分更新&quot;]
+    Set[&quot;ComponentInstance::setProps&quot;]
+    Changed[&quot;onPropsChanged&quot;]
+    Finalize[&quot;finalizeUpdates&quot;]
+
+    Animated --&gt; Sync --&gt; Update --&gt; Clone --&gt; Set --&gt; Changed --&gt; Finalize</pre></div>
+<p><code>updateView()</code> 会用原有 props 和本次局部更新生成一份新的完整 props：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">auto oldProps = componentInstance-&gt;getProps();
+auto newProps = componentDescriptor.cloneProps(
+    parserContext,
+    oldProps,
+    std::move(props));
+
+componentInstance-&gt;setProps(newProps);
+componentInstance-&gt;finalizeUpdates();</code></pre></div>
+<p>因此 Native Animated 修改属性时，也可能高频进入 <code>onPropsChanged</code>。</p>
+<hr>
+<h2 id="9-它与触摸-滚动事件的关系"><a class="heading-anchor" href="#9-%E5%AE%83%E4%B8%8E%E8%A7%A6%E6%91%B8-%E6%BB%9A%E5%8A%A8%E4%BA%8B%E4%BB%B6%E7%9A%84%E5%85%B3%E7%B3%BB" aria-label="链接到本节">#</a>9. 它与触摸、滚动事件的关系</h2>
+<p>用户手指滚动的直接链路是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN / MOVE / UP
+-&gt; ArkUI Scroll 内部处理
+-&gt; ScrollNode 回调
+-&gt; ScrollViewComponentInstance::onScroll()
+-&gt; RN scroll 事件</code></pre></div>
+<p>这条链不会因为滚动位置逐帧变化而直接调用 <code>onPropsChanged</code>。</p>
+<p>但是可能出现间接调用：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">onScroll
+-&gt; JS setState
+-&gt; 重新 render
+-&gt; ScrollView props 变化
+-&gt; Fabric Update
+-&gt; onPropsChanged</code></pre></div>
+<p>几个常见入口应当分开理解：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>对应原生入口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&lt;ScrollView scrollEnabled={false}&gt;</code></td>
+<td><code>onPropsChanged</code>，最终在 <code>onFinalizeUpdates</code> 生效</td>
+</tr>
+<tr>
+<td>修改 <code>contentOffset</code> prop</td>
+<td><code>onPropsChanged</code></td>
+</tr>
+<tr>
+<td><code>scrollViewRef.scrollTo()</code></td>
+<td><code>onCommandReceived</code></td>
+</tr>
+<tr>
+<td>用户手指拖动</td>
+<td>ArkUI touch / scroll 回调</td>
+</tr>
+<tr>
+<td>ArkUI 回传滚动位置</td>
+<td><code>onScroll</code> 等事件处理</td>
+</tr>
+<tr>
+<td>Native Animated 更新属性</td>
+<td>同步 <code>updateView -&gt; onPropsChanged</code></td>
+</tr>
+</tbody></table>
+<p>所以：</p>
+<blockquote>
+<p><code>onPropsChanged</code> 处理的是声明式属性快照更新，而不是用户正在触摸或滚动。</p>
+</blockquote>
+<hr>
+<h2 id="10-调试时怎样判断为什么进入"><a class="heading-anchor" href="#10-%E8%B0%83%E8%AF%95%E6%97%B6%E6%80%8E%E6%A0%B7%E5%88%A4%E6%96%AD%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%9B%E5%85%A5" aria-label="链接到本节">#</a>10. 调试时怎样判断为什么进入</h2>
+<p>不要只打一条“进入 onPropsChanged”的日志。更有效的是同时记录：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">component tag
+是否首次调用：m_props == nullptr
+怀疑属性的新值
+怀疑属性的旧值
+当前 mutation 类型
+是否来自 Native Animated 同步 updateView</code></pre></div>
+<p>例如排查 <code>scrollEnabled</code>：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">LOG(INFO) &lt;&lt; &quot;ScrollView props&quot;
+          &lt;&lt; &quot; tag=&quot; &lt;&lt; getTag()
+          &lt;&lt; &quot; first=&quot; &lt;&lt; (m_props == nullptr)
+          &lt;&lt; &quot; newScrollEnabled=&quot; &lt;&lt; props-&gt;scrollEnabled
+          &lt;&lt; &quot; oldScrollEnabled=&quot;
+          &lt;&lt; (m_props ? m_props-&gt;scrollEnabled : false);</code></pre></div>
+<p>如果问题与嵌套关系有关，还应在 <code>onFinalizeUpdates()</code> 同时记录：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">m_props-&gt;scrollEnabled
+m_isNativeResponderBlocked
+nestedScrollEnabled
+isNestedScroll()
+m_enableScrollInteraction</code></pre></div>
+<p>这样才能区分：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">prop 没下发
+prop 已下发但没变化
+prop 已变化但被 responder 禁用
+prop 已变化但被 nested scroll 条件禁用</code></pre></div>
+<hr>
+<h2 id="11-一张记忆图"><a class="heading-anchor" href="#11-%E4%B8%80%E5%BC%A0%E8%AE%B0%E5%BF%86%E5%9B%BE" aria-label="链接到本节">#</a>11. 一张记忆图</h2>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TD
+    Props[&quot;新的完整 Props 快照&quot;]
+    Callback[&quot;onPropsChanged(newProps)&quot;]
+    Compare[&quot;new props 与旧 m_props 比较&quot;]
+    Common[&quot;基类应用公共 ViewProps&quot;]
+    Special[&quot;ScrollView 应用专有 props&quot;]
+    Save[&quot;m_props = newProps&quot;]
+    Tree[&quot;INSERT 建立父子关系&quot;]
+    Final[&quot;onFinalizeUpdates&quot;]
+    ArkUI[&quot;ArkUI Scroll 最终配置&quot;]
+
+    Props --&gt; Callback --&gt; Compare
+    Compare --&gt; Common
+    Compare --&gt; Special
+    Common --&gt; Save
+    Special --&gt; Save
+    Save --&gt; Tree --&gt; Final --&gt; ArkUI</div><pre class="mermaid-fallback">flowchart TD
+    Props[&quot;新的完整 Props 快照&quot;]
+    Callback[&quot;onPropsChanged(newProps)&quot;]
+    Compare[&quot;new props 与旧 m_props 比较&quot;]
+    Common[&quot;基类应用公共 ViewProps&quot;]
+    Special[&quot;ScrollView 应用专有 props&quot;]
+    Save[&quot;m_props = newProps&quot;]
+    Tree[&quot;INSERT 建立父子关系&quot;]
+    Final[&quot;onFinalizeUpdates&quot;]
+    ArkUI[&quot;ArkUI Scroll 最终配置&quot;]
+
+    Props --&gt; Callback --&gt; Compare
+    Compare --&gt; Common
+    Compare --&gt; Special
+    Common --&gt; Save
+    Special --&gt; Save
+    Save --&gt; Tree --&gt; Final --&gt; ArkUI</pre></div>
+<p>最简记忆：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">新的 props 快照进来
+-&gt; onPropsChanged 用旧 m_props 做比较
+-&gt; 公共属性和滚动属性下发
+-&gt; 保存成新的 m_props
+-&gt; mutation 完成后 finalize</code></pre></div>
+<hr>
+<h2 id="12-关键源码索引"><a class="heading-anchor" href="#12-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" aria-label="链接到本节">#</a>12. 关键源码索引</h2>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\CppComponentInstance.h</code><ul>
+<li><code>setProps()</code> 调用 <code>onPropsChanged()</code> 后才更新 <code>m_props</code>：123-130</li>
+<li>基类公共 <code>onPropsChanged()</code>：289 起</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\MountingManagerCAPI.cpp</code><ul>
+<li>Native Animated/同步局部 props 更新：186-217</li>
+<li><code>updateComponentWithShadowView()</code> 的 layout/state/props 顺序：219-230</li>
+<li>Create 和 Update Mutation：262-338</li>
+<li>mutation 批次最终调用 <code>finalizeUpdates()</code>：341-379</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\ScrollViewComponentInstance.cpp</code><ul>
+<li><code>onPropsChanged()</code>：146-271</li>
+<li><code>onFinalizeUpdates()</code>：644 起</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\RNInstanceCAPI.cpp</code><ul>
+<li><code>synchronouslyUpdateViewOnUIThread()</code>：267-301</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\TurboModules\Animated\NativeAnimatedTurboModule.cpp</code><ul>
+<li>Native Animated 调用同步更新入口：573、584</li>
+</ul>
+</li>
+</ul>
+<p><a href="rn72滚动组件逻辑.html">返回《RN 0.72 鸿蒙 ScrollView 完整控制流程》</a></p>
+
+        </article>
+        <nav class="doc-pagination" aria-label="上一篇和下一篇">
+          <a href="%E8%A7%A6%E6%91%B8%E5%BA%8F%E5%88%97%E4%B8%8E%E7%82%B9%E5%87%BB%E6%BB%9A%E5%8A%A8%E5%85%B3%E7%B3%BB.html"><small>上一篇</small><strong>触摸序列与点击、滚动的关系</strong></a>
+          <span></span>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#1-%E5%85%88%E8%AE%B0%E4%BD%8F%E7%BB%93%E8%AE%BA" data-level="2">1. 先记住结论</a>
+<a href="#2-%E6%AD%A3%E5%B8%B8-fabric-%E6%9B%B4%E6%96%B0%E7%9A%84%E5%AE%8C%E6%95%B4%E8%B0%83%E7%94%A8%E9%93%BE" data-level="2">2. 正常 Fabric 更新的完整调用链</a>
+<a href="#2-1-%E9%A6%96%E6%AC%A1%E5%88%9B%E5%BB%BA%E4%B9%9F%E4%BC%9A%E8%B0%83%E7%94%A8" data-level="3">2.1 首次创建也会调用</a>
+<a href="#2-2-%E5%90%8E%E7%BB%AD-update-%E4%B9%9F%E4%BC%9A%E8%B0%83%E7%94%A8" data-level="3">2.2 后续 Update 也会调用</a>
+<a href="#3-mounting-%E9%98%B6%E6%AE%B5%E7%9A%84%E5%AE%9E%E9%99%85%E6%9B%B4%E6%96%B0%E9%A1%BA%E5%BA%8F" data-level="2">3. Mounting 阶段的实际更新顺序</a>
+<a href="#4-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%9B%9E%E8%B0%83%E9%87%8C%E5%8F%AF%E4%BB%A5%E6%AF%94%E8%BE%83%E6%96%B0%E6%97%A7-props" data-level="2">4. 为什么回调里可以比较新旧 props</a>
+<a href="#5-scrollview-%E7%9A%84-onpropschanged-%E5%88%86%E6%88%90%E4%B8%A4%E5%B1%82" data-level="2">5. ScrollView 的 onPropsChanged 分成两层</a>
+<a href="#5-1-%E5%9F%BA%E7%B1%BB%E5%A4%84%E7%90%86%E5%85%AC%E5%85%B1-viewprops" data-level="3">5.1 基类处理公共 ViewProps</a>
+<a href="#5-2-scrollview-%E5%A4%84%E7%90%86%E6%BB%9A%E5%8A%A8%E4%B8%93%E6%9C%89%E5%B1%9E%E6%80%A7" data-level="3">5.2 ScrollView 处理滚动专有属性</a>
+<a href="#6-onpropschanged-%E4%B8%8D%E4%BB%A3%E8%A1%A8-props-%E4%B8%80%E5%AE%9A%E7%9C%9F%E7%9A%84%E5%8F%98%E4%BA%86" data-level="2">6. onPropsChanged 不代表 props 一定真的变了</a>
+<a href="#7-onfinalizeupdates-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E8%83%BD%E5%AE%8C%E5%85%A8%E7%9C%81%E6%8E%89" data-level="2">7. onFinalizeUpdates 为什么不能完全省掉</a>
+<a href="#8-native-animated-%E8%BF%98%E6%9C%89%E4%B8%80%E6%9D%A1%E5%90%8C%E6%AD%A5%E5%85%A5%E5%8F%A3" data-level="2">8. Native Animated 还有一条同步入口</a>
+<a href="#9-%E5%AE%83%E4%B8%8E%E8%A7%A6%E6%91%B8-%E6%BB%9A%E5%8A%A8%E4%BA%8B%E4%BB%B6%E7%9A%84%E5%85%B3%E7%B3%BB" data-level="2">9. 它与触摸、滚动事件的关系</a>
+<a href="#10-%E8%B0%83%E8%AF%95%E6%97%B6%E6%80%8E%E6%A0%B7%E5%88%A4%E6%96%AD%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%9B%E5%85%A5" data-level="2">10. 调试时怎样判断为什么进入</a>
+<a href="#11-%E4%B8%80%E5%BC%A0%E8%AE%B0%E5%BF%86%E5%9B%BE" data-level="2">11. 一张记忆图</a>
+<a href="#12-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" data-level="2">12. 关键源码索引</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../../assets/vendor/mermaid.min.js"></script>
+    <script src="../../../../assets/site.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1448 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="从 JS、Fabric、RNOH 到 ArkUI，系统理解 RN 0.72 鸿蒙 ScrollView 的完整控制流程。">
+    <title>RN 0.72 鸿蒙 ScrollView 完整控制流程 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="../../index.html" aria-current="page">RNOH</a>
+          <a href="../../../cpp/index.html">C++</a>
+          <a href="../../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="ScrollView 专题">
+        <div>
+          <p class="side-label">ScrollView 专题</p>
+          <nav class="side-nav">
+            <a href="index.html">专题首页</a>
+            <a href="rn72%E6%BB%9A%E5%8A%A8%E7%BB%84%E4%BB%B6%E9%80%BB%E8%BE%91.html" aria-current="page">完整控制流程</a>
+<a href="%E8%A7%A6%E6%91%B8%E5%BA%8F%E5%88%97%E4%B8%8E%E7%82%B9%E5%87%BB%E6%BB%9A%E5%8A%A8%E5%85%B3%E7%B3%BB.html">触摸序列</a>
+<a href="onPropsChanged%E5%B1%9E%E6%80%A7%E6%9B%B4%E6%96%B0%E8%B0%83%E7%94%A8%E9%93%BE.html">Props 更新</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="../index.html">组件</a><span aria-hidden="true">/</span>
+          <a href="index.html">ScrollView</a><span aria-hidden="true">/</span>
+          <span>完整控制流程</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>主文档</strong> · 基于 RN 0.72 鸿蒙当前工作树源码</span>
+          <a href="index.html">返回专题目录</a>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="rn-0-72-鸿蒙-scrollview-完整控制流程">RN 0.72 鸿蒙 ScrollView 完整控制流程</h1>
+<blockquote>
+<p>本文基于当前工作区 <code>D:\rn72_0610\r</code> 的实际源码整理。<br>源码快照：<code>0.72-main</code> / <code>3718509b4</code>，<code>react-native 0.72.5</code>，<code>react-native-harmony 0.72.141</code>。<br>当前工作区存在未提交修改，因此本文描述的是“当前工作树实际生效的代码”，不是抽象的社区 RN 实现。</p>
+</blockquote>
+<h2 id="阅读导航"><a class="heading-anchor" href="#%E9%98%85%E8%AF%BB%E5%AF%BC%E8%88%AA" aria-label="链接到本节">#</a>阅读导航</h2>
+<ul>
+<li><strong>先建立全貌</strong>：第 0-3 节</li>
+<li><strong>理解 props、创建和更新</strong>：第 4 节</li>
+<li><strong>深入理解 <code>onPropsChanged</code> 属性更新入口</strong>：<a href="onPropsChanged属性更新调用链.html"><code>onPropsChanged</code> 专题</a></li>
+<li><strong>理解手指拖动与事件回传</strong>：第 5-7 节</li>
+<li><strong>深入理解 DOWN、UP、CANCEL 与点击/滚动关系</strong>：<a href="触摸序列与点击滚动关系.html">触摸序列专题</a></li>
+<li><strong>理解 <code>scrollTo</code>、物理参数和吸附</strong>：第 8-9 节</li>
+<li><strong>理解 responder、嵌套滚动和手势竞争</strong>：第 10 节</li>
+<li><strong>理解 FlatList、StickyHeader、RefreshControl 等联动</strong>：第 11 节</li>
+<li><strong>按职责或问题现象反查</strong>：第 12-16 节</li>
+</ul>
+<h2 id="0-先记住这五句话"><a class="heading-anchor" href="#0-%E5%85%88%E8%AE%B0%E4%BD%8F%E8%BF%99%E4%BA%94%E5%8F%A5%E8%AF%9D" aria-label="链接到本节">#</a>0. 先记住这五句话</h2>
+<ol>
+<li><strong>真正把手指位移变成滚动位置、并执行惯性和回弹的是 ArkUI 的 <code>ARKUI_NODE_SCROLL</code>。</strong></li>
+<li>JS <code>ScrollView</code> 决定的是“配置和策略”，例如横竖方向、是否可滚、摩擦、吸附、回调和程序化滚动目标。</li>
+<li>Fabric 负责把 JS 描述转换成 <code>Props</code>、布局结果和 <code>State</code>，再产生挂载事务。</li>
+<li><code>ScrollViewComponentInstance</code> 是 RN 语义与 ArkUI 语义之间的控制器；<code>ScrollNode</code> 是很薄的 ArkUI C API 封装。</li>
+<li><code>scrollTo()</code> 是“主动设置目标位置”，<code>onScroll()</code> 是“滚动结果回报”，二者方向相反，也都不是手指滚动本身。</li>
+</ol>
+<p>如果只想先建立整体认识，依次阅读第 1、2、5、6、13 节即可。</p>
+<hr>
+<h2 id="1-一张总图-滚动控制权怎样流动"><a class="heading-anchor" href="#1-%E4%B8%80%E5%BC%A0%E6%80%BB%E5%9B%BE-%E6%BB%9A%E5%8A%A8%E6%8E%A7%E5%88%B6%E6%9D%83%E6%80%8E%E6%A0%B7%E6%B5%81%E5%8A%A8" aria-label="链接到本节">#</a>1. 一张总图：滚动控制权怎样流动</h2>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TB
+    User[&quot;业务代码：ScrollView / FlatList&quot;]
+
+    subgraph JS[&quot;JS 层：声明配置、组合能力、接收回调&quot;]
+        JSScroll[&quot;ScrollView.harmony.js&quot;]
+        Sticky[&quot;StickyHeader / Animated&quot;]
+        List[&quot;VirtualizedList / FlatList&quot;]
+        Commands[&quot;ScrollViewCommands&quot;]
+    end
+
+    subgraph Fabric[&quot;Fabric 层：组件模型、布局、状态、事务&quot;]
+        Props[&quot;ScrollViewProps&quot;]
+        Shadow[&quot;ScrollViewShadowNode + Yoga 布局&quot;]
+        State[&quot;ScrollViewState&lt;br/&gt;contentSize / contentOffset&quot;]
+        Scheduler[&quot;SchedulerDelegate&quot;]
+    end
+
+    subgraph RNOH[&quot;RNOH C++ 层：语义适配与控制&quot;]
+        Mount[&quot;MountingManagerCAPI&quot;]
+        CI[&quot;ScrollViewComponentInstance&quot;]
+        Wrapper[&quot;ScrollNode&quot;]
+        Emitter[&quot;EventEmitter / EventDispatcher&quot;]
+    end
+
+    subgraph ArkUI[&quot;ArkUI 平台层：真正执行滚动&quot;]
+        NativeScroll[&quot;ARKUI_NODE_SCROLL&quot;]
+    end
+
+    User --&gt; JSScroll
+    List --&gt; JSScroll
+    JSScroll --&gt;|&quot;Props&quot;| Props
+    Props --&gt; Shadow
+    Shadow --&gt; State
+    Shadow --&gt;|&quot;Mount mutations&quot;| Scheduler
+    Scheduler --&gt; Mount
+    Mount --&gt; CI
+    CI --&gt; Wrapper
+    Wrapper --&gt;|&quot;NODE_SCROLL_* 属性&quot;| NativeScroll
+
+    JSScroll --&gt; Commands
+    Commands --&gt;|&quot;scrollTo / scrollToEnd&quot;| Scheduler
+
+    NativeScroll --&gt;|&quot;SCROLL_EVENT_*&quot;| Wrapper
+    Wrapper --&gt; CI
+    CI --&gt;|&quot;内部 State 更新&quot;| State
+    CI --&gt;|&quot;scroll / drag / momentum 事件&quot;| Emitter
+    Emitter --&gt; JSScroll
+    JSScroll --&gt; User
+    CI --&gt;|&quot;每次原生滚动直接喂给 Native Animated&quot;| Sticky</div><pre class="mermaid-fallback">flowchart TB
+    User[&quot;业务代码：ScrollView / FlatList&quot;]
+
+    subgraph JS[&quot;JS 层：声明配置、组合能力、接收回调&quot;]
+        JSScroll[&quot;ScrollView.harmony.js&quot;]
+        Sticky[&quot;StickyHeader / Animated&quot;]
+        List[&quot;VirtualizedList / FlatList&quot;]
+        Commands[&quot;ScrollViewCommands&quot;]
+    end
+
+    subgraph Fabric[&quot;Fabric 层：组件模型、布局、状态、事务&quot;]
+        Props[&quot;ScrollViewProps&quot;]
+        Shadow[&quot;ScrollViewShadowNode + Yoga 布局&quot;]
+        State[&quot;ScrollViewState&lt;br/&gt;contentSize / contentOffset&quot;]
+        Scheduler[&quot;SchedulerDelegate&quot;]
+    end
+
+    subgraph RNOH[&quot;RNOH C++ 层：语义适配与控制&quot;]
+        Mount[&quot;MountingManagerCAPI&quot;]
+        CI[&quot;ScrollViewComponentInstance&quot;]
+        Wrapper[&quot;ScrollNode&quot;]
+        Emitter[&quot;EventEmitter / EventDispatcher&quot;]
+    end
+
+    subgraph ArkUI[&quot;ArkUI 平台层：真正执行滚动&quot;]
+        NativeScroll[&quot;ARKUI_NODE_SCROLL&quot;]
+    end
+
+    User --&gt; JSScroll
+    List --&gt; JSScroll
+    JSScroll --&gt;|&quot;Props&quot;| Props
+    Props --&gt; Shadow
+    Shadow --&gt; State
+    Shadow --&gt;|&quot;Mount mutations&quot;| Scheduler
+    Scheduler --&gt; Mount
+    Mount --&gt; CI
+    CI --&gt; Wrapper
+    Wrapper --&gt;|&quot;NODE_SCROLL_* 属性&quot;| NativeScroll
+
+    JSScroll --&gt; Commands
+    Commands --&gt;|&quot;scrollTo / scrollToEnd&quot;| Scheduler
+
+    NativeScroll --&gt;|&quot;SCROLL_EVENT_*&quot;| Wrapper
+    Wrapper --&gt; CI
+    CI --&gt;|&quot;内部 State 更新&quot;| State
+    CI --&gt;|&quot;scroll / drag / momentum 事件&quot;| Emitter
+    Emitter --&gt; JSScroll
+    JSScroll --&gt; User
+    CI --&gt;|&quot;每次原生滚动直接喂给 Native Animated&quot;| Sticky</pre></div>
+<p>这张图里有两条最重要的方向：</p>
+<ul>
+<li><strong>向下控制流</strong>：JS 配置或命令 → Fabric → RNOH → ArkUI。</li>
+<li><strong>向上反馈流</strong>：ArkUI 已经滚动 → RNOH 读取结果 → Fabric State / JS 事件。</li>
+</ul>
+<hr>
+<h2 id="2-建立正确心智模型-三种输入-两种输出"><a class="heading-anchor" href="#2-%E5%BB%BA%E7%AB%8B%E6%AD%A3%E7%A1%AE%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B-%E4%B8%89%E7%A7%8D%E8%BE%93%E5%85%A5-%E4%B8%A4%E7%A7%8D%E8%BE%93%E5%87%BA" aria-label="链接到本节">#</a>2. 建立正确心智模型：三种输入、两种输出</h2>
+<p>很多理解混乱，都是因为把下面五条通道混成了一条。</p>
+<table>
+<thead>
+<tr>
+<th>通道</th>
+<th>例子</th>
+<th>方向</th>
+<th>本质</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>声明式属性</td>
+<td><code>scrollEnabled</code>、<code>horizontal</code>、<code>snapToOffsets</code></td>
+<td>JS → ArkUI</td>
+<td>持续生效的配置</td>
+</tr>
+<tr>
+<td>命令</td>
+<td><code>scrollTo()</code>、<code>scrollToEnd()</code></td>
+<td>JS → ArkUI</td>
+<td>一次性动作</td>
+</tr>
+<tr>
+<td>原始触摸</td>
+<td>DOWN / MOVE / UP</td>
+<td>系统输入 → ArkUI</td>
+<td>平台直接驱动滚动</td>
+</tr>
+<tr>
+<td>Fabric State</td>
+<td><code>contentSize</code>、当前 <code>contentOffset</code></td>
+<td>Native ↔ Fabric</td>
+<td>框架内部一致性数据</td>
+</tr>
+<tr>
+<td>JS 事件</td>
+<td><code>onScroll</code>、drag、momentum</td>
+<td>ArkUI → JS</td>
+<td>通知业务“发生了什么”</td>
+</tr>
+</tbody></table>
+<h3 id="2-1-声明式属性不是命令"><a class="heading-anchor" href="#2-1-%E5%A3%B0%E6%98%8E%E5%BC%8F%E5%B1%9E%E6%80%A7%E4%B8%8D%E6%98%AF%E5%91%BD%E4%BB%A4" aria-label="链接到本节">#</a>2.1 声明式属性不是命令</h3>
+<div class="code-frame"><span class="code-frame__label">tsx</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-tsx">&lt;ScrollView horizontal scrollEnabled={true} contentOffset={{x: 100, y: 0}} /&gt;</code></pre></div>
+<p>这些属性随 React render 和 Fabric transaction 下发。<code>contentOffset</code> 比较特殊：它虽然是 prop，但 native 收到变化后会执行一次非动画 <code>scrollTo</code>。</p>
+<h3 id="2-2-命令不需要等待下一次-render"><a class="heading-anchor" href="#2-2-%E5%91%BD%E4%BB%A4%E4%B8%8D%E9%9C%80%E8%A6%81%E7%AD%89%E5%BE%85%E4%B8%8B%E4%B8%80%E6%AC%A1-render" aria-label="链接到本节">#</a>2.2 命令不需要等待下一次 render</h3>
+<div class="code-frame"><span class="code-frame__label">tsx</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-tsx">scrollViewRef.current?.scrollTo({x: 0, y: 500, animated: true});</code></pre></div>
+<p>它通过 Fabric command 通道直接到 native 组件实例，不是先变成新的 prop。</p>
+<h3 id="2-3-手指滚动不经过-js-逐帧计算"><a class="heading-anchor" href="#2-3-%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8%E4%B8%8D%E7%BB%8F%E8%BF%87-js-%E9%80%90%E5%B8%A7%E8%AE%A1%E7%AE%97" aria-label="链接到本节">#</a>2.3 手指滚动不经过 JS 逐帧计算</h3>
+<p>用户移动手指时，不是 JS 计算 <code>dy</code> 再不断调用 <code>scrollTo()</code>。ArkUI Scroll 节点直接消费系统触摸流，完成：</p>
+<ul>
+<li>拖动距离计算；</li>
+<li>当前 offset 更新；</li>
+<li>速度与惯性；</li>
+<li>边界、回弹和 edge effect；</li>
+<li>paging、snap 和 nested scroll 的平台执行。</li>
+</ul>
+<p>RNOH 主要监听滚动结果并补齐 RN 的状态与事件语义。</p>
+<h3 id="2-4-state-不是事件"><a class="heading-anchor" href="#2-4-state-%E4%B8%8D%E6%98%AF%E4%BA%8B%E4%BB%B6" aria-label="链接到本节">#</a>2.4 State 不是事件</h3>
+<p><code>updateStateWithContentOffset()</code> 更新 Fabric 内部的 <code>ScrollViewState</code>，用于让 ShadowTree 知道 native 当前 offset；<code>emitScrollEvent()</code> 才会通知 JS 回调。</p>
+<p>两者可能在同一处发生，但用途不同：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">State：框架内部保持一致
+Event：通知 JS 业务代码</code></pre></div>
+<hr>
+<h2 id="3-一个-scrollview-实际由哪些对象组成"><a class="heading-anchor" href="#3-%E4%B8%80%E4%B8%AA-scrollview-%E5%AE%9E%E9%99%85%E7%94%B1%E5%93%AA%E4%BA%9B%E5%AF%B9%E8%B1%A1%E7%BB%84%E6%88%90" aria-label="链接到本节">#</a>3. 一个 ScrollView 实际由哪些对象组成</h2>
+<h3 id="3-1-名称对应"><a class="heading-anchor" href="#3-1-%E5%90%8D%E7%A7%B0%E5%AF%B9%E5%BA%94" aria-label="链接到本节">#</a>3.1 名称对应</h3>
+<table>
+<thead>
+<tr>
+<th>看到的名称</th>
+<th>所属层</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&lt;ScrollView&gt;</code></td>
+<td>JS</td>
+<td>对外组件，处理 props 默认值、Responder、键盘、StickyHeader 等</td>
+</tr>
+<tr>
+<td><code>RCTScrollView</code></td>
+<td>JS NativeComponent 名</td>
+<td>Host Component 注册名</td>
+</tr>
+<tr>
+<td><code>ScrollView</code></td>
+<td>Fabric ComponentName</td>
+<td>去掉 <code>RCT</code> 后的 Fabric 标准名</td>
+</tr>
+<tr>
+<td><code>ScrollViewShadowNode</code></td>
+<td>Fabric</td>
+<td>布局、内容包围盒和 State</td>
+</tr>
+<tr>
+<td><code>ScrollViewComponentInstance</code></td>
+<td>RNOH C++</td>
+<td>RN ScrollView 业务控制器</td>
+</tr>
+<tr>
+<td><code>ScrollNode</code></td>
+<td>RNOH C++</td>
+<td>ArkUI Scroll C API 包装</td>
+</tr>
+<tr>
+<td><code>ARKUI_NODE_SCROLL</code></td>
+<td>ArkUI</td>
+<td>真正执行原生滚动的节点</td>
+</tr>
+</tbody></table>
+<p><code>componentNameByReactViewName()</code> 会把 <code>RCTScrollView</code> 归一化为 <code>ScrollView</code>，所以 JS 注册名和 C++ instance factory 判断的名字不同，但它们指向同一个组件。</p>
+<h3 id="3-2-js-与-arkui-节点树"><a class="heading-anchor" href="#3-2-js-%E4%B8%8E-arkui-%E8%8A%82%E7%82%B9%E6%A0%91" aria-label="链接到本节">#</a>3.2 JS 与 ArkUI 节点树</h3>
+<p>JS 侧会自动插入一个内容容器：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ScrollView
+└── ScrollContentView
+    ├── child 0
+    ├── child 1
+    └── ...</code></pre></div>
+<p>RNOH C++ 又为 ArkUI Scroll 准备了一个只能有一个直接子节点的内部 <code>StackNode</code>：</p>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TB
+    Refresh[&quot;可选：ARKUI_NODE_REFRESH&lt;br/&gt;RefreshControl&quot;]
+    Scroll[&quot;ARKUI_NODE_SCROLL&lt;br/&gt;ScrollNode&quot;]
+    Stack[&quot;内部 StackNode&lt;br/&gt;m_contentContainerNode&quot;]
+    Content[&quot;RCTScrollContentView 对应的 ComponentInstance&quot;]
+    Children[&quot;业务 children&quot;]
+
+    Refresh -. &quot;存在 refreshControl 时作为父节点&quot; .-&gt; Scroll
+    Scroll --&gt; Stack
+    Stack --&gt; Content
+    Content --&gt; Children</div><pre class="mermaid-fallback">flowchart TB
+    Refresh[&quot;可选：ARKUI_NODE_REFRESH&lt;br/&gt;RefreshControl&quot;]
+    Scroll[&quot;ARKUI_NODE_SCROLL&lt;br/&gt;ScrollNode&quot;]
+    Stack[&quot;内部 StackNode&lt;br/&gt;m_contentContainerNode&quot;]
+    Content[&quot;RCTScrollContentView 对应的 ComponentInstance&quot;]
+    Children[&quot;业务 children&quot;]
+
+    Refresh -. &quot;存在 refreshControl 时作为父节点&quot; .-&gt; Scroll
+    Scroll --&gt; Stack
+    Stack --&gt; Content
+    Content --&gt; Children</pre></div>
+<p><code>ScrollViewComponentInstance</code> 构造时就执行：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">m_scrollNode.insertChild(m_contentContainerNode);
+m_scrollNode.setScrollNodeDelegate(this);
+m_scrollNode.setNestedScroll(ARKUI_SCROLL_NESTED_MODE_SELF_FIRST);</code></pre></div>
+<p>之后 Fabric 插入的 <code>ScrollContentView</code> 被放进内部 Stack，业务 children 再位于 <code>ScrollContentView</code> 下。</p>
+<hr>
+<h2 id="4-首次渲染与-props-更新怎样生效"><a class="heading-anchor" href="#4-%E9%A6%96%E6%AC%A1%E6%B8%B2%E6%9F%93%E4%B8%8E-props-%E6%9B%B4%E6%96%B0%E6%80%8E%E6%A0%B7%E7%94%9F%E6%95%88" aria-label="链接到本节">#</a>4. 首次渲染与 props 更新怎样生效</h2>
+<blockquote>
+<p>配套专题：<a href="onPropsChanged属性更新调用链.html">从 Fabric Mutation 到 ArkUI——<code>onPropsChanged</code> 属性更新调用链</a></p>
+</blockquote>
+<div class="mermaid-wrap"><div class="mermaid">sequenceDiagram
+    participant JS as &quot;ScrollView.harmony.js&quot;
+    participant Fabric as &quot;ScrollViewShadowNode&quot;
+    participant Scheduler as &quot;SchedulerDelegate&quot;
+    participant Mount as &quot;MountingManagerCAPI&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Node as &quot;ScrollNode / ArkUI&quot;
+
+    JS-&gt;&gt;JS: &quot;归一化默认值、事件处理器、content container&quot;
+    JS-&gt;&gt;Fabric: &quot;创建 RCTScrollView + props&quot;
+    Fabric-&gt;&gt;Fabric: &quot;Yoga layout&quot;
+    Fabric-&gt;&gt;Fabric: &quot;计算 contentBoundingRect，更新 ScrollViewState&quot;
+    Fabric-&gt;&gt;Scheduler: &quot;CREATE / INSERT / UPDATE mutations&quot;
+    Scheduler-&gt;&gt;Mount: &quot;主线程执行 mounting transaction&quot;
+    Mount-&gt;&gt;CI: &quot;创建实例&quot;
+    CI-&gt;&gt;Node: &quot;创建 ARKUI_NODE_SCROLL + 内部 Stack&quot;
+    Mount-&gt;&gt;CI: &quot;setLayout&quot;
+    Mount-&gt;&gt;CI: &quot;setState&quot;
+    Mount-&gt;&gt;CI: &quot;setProps&quot;
+    Mount-&gt;&gt;CI: &quot;insertChild&quot;
+    Mount-&gt;&gt;CI: &quot;finalizeUpdates&quot;
+    CI-&gt;&gt;Node: &quot;设置 NODE_SCROLL_* 属性&quot;</div><pre class="mermaid-fallback">sequenceDiagram
+    participant JS as &quot;ScrollView.harmony.js&quot;
+    participant Fabric as &quot;ScrollViewShadowNode&quot;
+    participant Scheduler as &quot;SchedulerDelegate&quot;
+    participant Mount as &quot;MountingManagerCAPI&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Node as &quot;ScrollNode / ArkUI&quot;
+
+    JS-&gt;&gt;JS: &quot;归一化默认值、事件处理器、content container&quot;
+    JS-&gt;&gt;Fabric: &quot;创建 RCTScrollView + props&quot;
+    Fabric-&gt;&gt;Fabric: &quot;Yoga layout&quot;
+    Fabric-&gt;&gt;Fabric: &quot;计算 contentBoundingRect，更新 ScrollViewState&quot;
+    Fabric-&gt;&gt;Scheduler: &quot;CREATE / INSERT / UPDATE mutations&quot;
+    Scheduler-&gt;&gt;Mount: &quot;主线程执行 mounting transaction&quot;
+    Mount-&gt;&gt;CI: &quot;创建实例&quot;
+    CI-&gt;&gt;Node: &quot;创建 ARKUI_NODE_SCROLL + 内部 Stack&quot;
+    Mount-&gt;&gt;CI: &quot;setLayout&quot;
+    Mount-&gt;&gt;CI: &quot;setState&quot;
+    Mount-&gt;&gt;CI: &quot;setProps&quot;
+    Mount-&gt;&gt;CI: &quot;insertChild&quot;
+    Mount-&gt;&gt;CI: &quot;finalizeUpdates&quot;
+    CI-&gt;&gt;Node: &quot;设置 NODE_SCROLL_* 属性&quot;</pre></div>
+<h3 id="4-1-js-层先做一次策略归一化"><a class="heading-anchor" href="#4-1-js-%E5%B1%82%E5%85%88%E5%81%9A%E4%B8%80%E6%AC%A1%E7%AD%96%E7%95%A5%E5%BD%92%E4%B8%80%E5%8C%96" aria-label="链接到本节">#</a>4.1 JS 层先做一次策略归一化</h3>
+<p><code>ScrollView.harmony.js</code> 不是简单透传组件。它会：</p>
+<ul>
+<li>横向和纵向都选择同一个 <code>ScrollViewNativeComponent</code>，用 <code>horizontal</code> prop 区分方向；</li>
+<li>自动创建 <code>ScrollContentView</code>；</li>
+<li>给 <code>alwaysBounceHorizontal/Vertical</code>、indicator、snap、paging 设置默认或互斥关系；</li>
+<li>当存在 StickyHeader 时，把 <code>scrollEventThrottle</code> 强制为 <code>1</code>；</li>
+<li>仅当 <code>decelerationRate</code> 显式传入时，调用 Harmony 的 <code>processDecelerationRate()</code>；</li>
+<li>安装 <code>onScroll</code>、drag、momentum、Responder、touch、keyboard 处理器；</li>
+<li>有 <code>refreshControl</code> 时，把 native ScrollView 包到 RefreshControl 中。</li>
+</ul>
+<p>一个容易忽略的策略是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">设置 snapToInterval 或 snapToOffsets
+    -&gt; JS 层把 pagingEnabled 置为 false
+    -&gt; 避免 paging 和显式 snap 同时控制位置</code></pre></div>
+<h3 id="4-2-fabric-如何得到内容大小"><a class="heading-anchor" href="#4-2-fabric-%E5%A6%82%E4%BD%95%E5%BE%97%E5%88%B0%E5%86%85%E5%AE%B9%E5%A4%A7%E5%B0%8F" aria-label="链接到本节">#</a>4.2 Fabric 如何得到内容大小</h3>
+<p><code>ScrollViewShadowNode::layout()</code> 在 Yoga 完成后：</p>
+<ol>
+<li>遍历 layoutable children；</li>
+<li>合并每个 child 的 <code>frame</code>；</li>
+<li>得到 <code>contentBoundingRect</code>；</li>
+<li>写入 <code>ScrollViewState</code>；</li>
+<li><code>ScrollViewState::getContentSize()</code> 返回这个包围盒的 size。</li>
+</ol>
+<p>因此 native 使用的 <code>contentSize</code> 不是 <code>onContentSizeChange</code> JS 回调算出来的。两条路径是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">Fabric ShadowNode 计算 contentBoundingRect
+    -&gt; ScrollViewState
+    -&gt; ScrollViewComponentInstance::onStateChanged()
+    -&gt; 设置 native 内容容器大小
+
+ScrollContentView onLayout
+    -&gt; ScrollView.harmony.js::_handleContentOnLayout()
+    -&gt; 只调用业务 onContentSizeChange(width, height)</code></pre></div>
+<h3 id="4-3-mounting-时的关键更新顺序"><a class="heading-anchor" href="#4-3-mounting-%E6%97%B6%E7%9A%84%E5%85%B3%E9%94%AE%E6%9B%B4%E6%96%B0%E9%A1%BA%E5%BA%8F" aria-label="链接到本节">#</a>4.3 Mounting 时的关键更新顺序</h3>
+<p><code>MountingManagerCAPI::updateComponentWithShadowView()</code> 当前顺序是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">setShadowView
+-&gt; setLayout
+-&gt; setEventEmitter
+-&gt; setState
+-&gt; setProps</code></pre></div>
+<p>插入关系处理完后，<code>finalizeMutationUpdates()</code> 再调用 <code>finalizeUpdates()</code>。</p>
+<p>这解释了为什么部分逻辑必须放在 <code>onFinalizeUpdates()</code>：例如判断“自己是不是嵌套 ScrollView”，必须等 INSERT mutation 已经建立父子关系后才可靠。</p>
+<h3 id="4-4-props-最终映射到什么"><a class="heading-anchor" href="#4-4-props-%E6%9C%80%E7%BB%88%E6%98%A0%E5%B0%84%E5%88%B0%E4%BB%80%E4%B9%88" aria-label="链接到本节">#</a>4.4 props 最终映射到什么</h3>
+<table>
+<thead>
+<tr>
+<th>RN prop / 状态</th>
+<th><code>ScrollViewComponentInstance</code> 处理</th>
+<th><code>ScrollNode</code> / ArkUI 结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>horizontal</code></td>
+<td><code>setHorizontal()</code></td>
+<td><code>NODE_SCROLL_SCROLL_DIRECTION</code></td>
+</tr>
+<tr>
+<td><code>scrollEnabled</code></td>
+<td>与 responder、nested 条件一起计算</td>
+<td><code>NODE_SCROLL_ENABLE_SCROLL_INTERACTION</code></td>
+</tr>
+<tr>
+<td><code>decelerationRate</code></td>
+<td>转换为 friction</td>
+<td><code>NODE_SCROLL_FRICTION</code></td>
+</tr>
+<tr>
+<td><code>flingSpeedLimit</code></td>
+<td>API 18+ 才设置</td>
+<td><code>NODE_SCROLL_FLING_SPEED_LIMIT</code></td>
+</tr>
+<tr>
+<td><code>bounces</code> + <code>alwaysBounce*</code></td>
+<td>未设置 <code>overScrollMode</code> 时使用</td>
+<td><code>NODE_SCROLL_EDGE_EFFECT</code></td>
+</tr>
+<tr>
+<td><code>overScrollMode</code></td>
+<td>优先于 bounces 分支</td>
+<td>NONE 或 SPRING edge effect</td>
+</tr>
+<tr>
+<td><code>pagingEnabled</code></td>
+<td><code>setEnablePaging()</code></td>
+<td><code>NODE_SCROLL_ENABLE_PAGING</code></td>
+</tr>
+<tr>
+<td><code>snapToOffsets/Interval/...</code></td>
+<td>清洗、排序、构造 snap points</td>
+<td><code>NODE_SCROLL_SNAP</code></td>
+</tr>
+<tr>
+<td><code>shows*ScrollIndicator</code></td>
+<td>计算显示模式</td>
+<td><code>NODE_SCROLL_BAR_DISPLAY_MODE</code></td>
+</tr>
+<tr>
+<td><code>persistentScrollbar</code></td>
+<td>参与显示模式计算</td>
+<td>ON / AUTO</td>
+</tr>
+<tr>
+<td><code>indicatorStyle</code></td>
+<td>转为黑/白半透明色</td>
+<td><code>NODE_SCROLL_BAR_COLOR</code></td>
+</tr>
+<tr>
+<td><code>contentOffset</code></td>
+<td>prop 变化时非动画 <code>scrollTo</code></td>
+<td><code>NODE_SCROLL_OFFSET</code></td>
+</tr>
+<tr>
+<td><code>scrollToOverflowEnabled</code></td>
+<td>传入 <code>scrollTo</code></td>
+<td>offset 属性的 overflow 标志</td>
+</tr>
+<tr>
+<td><code>centerContent</code></td>
+<td>调整内容对齐方式</td>
+<td>center / top-start</td>
+</tr>
+<tr>
+<td><code>fadingEdgeLength</code></td>
+<td>API 14+ 设置</td>
+<td><code>NODE_SCROLL_FADING_EDGE</code></td>
+</tr>
+<tr>
+<td><code>endFillColor</code></td>
+<td>设置节点背景色</td>
+<td><code>NODE_BACKGROUND_COLOR</code></td>
+</tr>
+<tr>
+<td><code>removeClippedSubviews</code></td>
+<td>滚动时触发内容容器裁剪更新</td>
+<td>不直接对应 Scroll 属性</td>
+</tr>
+<tr>
+<td><code>maintainVisibleContentPosition</code></td>
+<td>内容变化后补偿 offset</td>
+<td>内部调用 <code>scrollTo</code></td>
+</tr>
+<tr>
+<td><code>scrollEventThrottle</code></td>
+<td>C++ 记录毫秒间隔</td>
+<td>控制普通 JS <code>scroll</code> 事件频率</td>
+</tr>
+</tbody></table>
+<p>不是所有 RN 通用 ScrollView prop 都在当前 Harmony C++ 中有落地。例如 zoom 相关 API 仍属于 iOS 路径，不能只因为 Flow 类型中存在就认为 Harmony 已实现。</p>
+<hr>
+<h2 id="5-手指拖动-真正的原生滚动流程"><a class="heading-anchor" href="#5-%E6%89%8B%E6%8C%87%E6%8B%96%E5%8A%A8-%E7%9C%9F%E6%AD%A3%E7%9A%84%E5%8E%9F%E7%94%9F%E6%BB%9A%E5%8A%A8%E6%B5%81%E7%A8%8B" aria-label="链接到本节">#</a>5. 手指拖动：真正的原生滚动流程</h2>
+<blockquote>
+<p>配套专题：<a href="触摸序列与点击滚动关系.html">触摸序列与点击、滚动的关系——DOWN、MOVE、UP、CANCEL 是否成对</a></p>
+</blockquote>
+<h3 id="5-1-完整时序"><a class="heading-anchor" href="#5-1-%E5%AE%8C%E6%95%B4%E6%97%B6%E5%BA%8F" aria-label="链接到本节">#</a>5.1 完整时序</h3>
+<div class="mermaid-wrap"><div class="mermaid">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant ArkUI as &quot;ARKUI_NODE_SCROLL&quot;
+    participant Touch as &quot;ScrollViewTouchHandler&quot;
+    participant Wrapper as &quot;ScrollNode&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Animated as &quot;NativeAnimatedTurboModule&quot;
+    participant Fabric as &quot;EventDispatcher&quot;
+    participant JS as &quot;ScrollView / FlatList / 业务&quot;
+
+    Finger-&gt;&gt;ArkUI: &quot;DOWN / MOVE&quot;
+    ArkUI-&gt;&gt;ArkUI: &quot;识别拖动并更新 offset&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_START&quot;
+    Wrapper-&gt;&gt;CI: &quot;onScrollStart()&quot;
+
+    loop &quot;每个滚动帧&quot;
+        ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_FRAME_BEGIN(offset, state)&quot;
+        Wrapper-&gt;&gt;CI: &quot;onScrollFrameBegin()&quot;
+        CI--&gt;&gt;ArkUI: &quot;返回允许消费的 remainingOffset&quot;
+        ArkUI-&gt;&gt;Wrapper: &quot;ON_DID_SCROLL&quot;
+        Wrapper-&gt;&gt;CI: &quot;onScroll()&quot;
+        CI-&gt;&gt;Animated: &quot;onScroll payload，每次都发送&quot;
+        CI-&gt;&gt;Fabric: &quot;经 throttle 后发送 scroll&quot;
+        Fabric-&gt;&gt;JS: &quot;onScroll(event)&quot;
+    end
+
+    Finger-&gt;&gt;ArkUI: &quot;UP&quot;
+    ArkUI-&gt;&gt;Touch: &quot;NODE_TOUCH_EVENT&quot;
+    Touch-&gt;&gt;CI: &quot;onTouchEventActionUp()，只记录抬手&quot;
+    ArkUI-&gt;&gt;ArkUI: &quot;按速度继续 fling / bounce&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;FRAME_BEGIN(state = FLING)&quot;
+    Wrapper-&gt;&gt;CI: &quot;状态切换并发送 drag / momentum 事件&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_STOP&quot;
+    Wrapper-&gt;&gt;CI: &quot;onScrollStop()&quot;
+    CI-&gt;&gt;Fabric: &quot;最终 end 事件&quot;
+    Fabric-&gt;&gt;JS: &quot;onScrollEndDrag / onMomentumScrollEnd&quot;</div><pre class="mermaid-fallback">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant ArkUI as &quot;ARKUI_NODE_SCROLL&quot;
+    participant Touch as &quot;ScrollViewTouchHandler&quot;
+    participant Wrapper as &quot;ScrollNode&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Animated as &quot;NativeAnimatedTurboModule&quot;
+    participant Fabric as &quot;EventDispatcher&quot;
+    participant JS as &quot;ScrollView / FlatList / 业务&quot;
+
+    Finger-&gt;&gt;ArkUI: &quot;DOWN / MOVE&quot;
+    ArkUI-&gt;&gt;ArkUI: &quot;识别拖动并更新 offset&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_START&quot;
+    Wrapper-&gt;&gt;CI: &quot;onScrollStart()&quot;
+
+    loop &quot;每个滚动帧&quot;
+        ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_FRAME_BEGIN(offset, state)&quot;
+        Wrapper-&gt;&gt;CI: &quot;onScrollFrameBegin()&quot;
+        CI--&gt;&gt;ArkUI: &quot;返回允许消费的 remainingOffset&quot;
+        ArkUI-&gt;&gt;Wrapper: &quot;ON_DID_SCROLL&quot;
+        Wrapper-&gt;&gt;CI: &quot;onScroll()&quot;
+        CI-&gt;&gt;Animated: &quot;onScroll payload，每次都发送&quot;
+        CI-&gt;&gt;Fabric: &quot;经 throttle 后发送 scroll&quot;
+        Fabric-&gt;&gt;JS: &quot;onScroll(event)&quot;
+    end
+
+    Finger-&gt;&gt;ArkUI: &quot;UP&quot;
+    ArkUI-&gt;&gt;Touch: &quot;NODE_TOUCH_EVENT&quot;
+    Touch-&gt;&gt;CI: &quot;onTouchEventActionUp()，只记录抬手&quot;
+    ArkUI-&gt;&gt;ArkUI: &quot;按速度继续 fling / bounce&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;FRAME_BEGIN(state = FLING)&quot;
+    Wrapper-&gt;&gt;CI: &quot;状态切换并发送 drag / momentum 事件&quot;
+    ArkUI-&gt;&gt;Wrapper: &quot;ON_SCROLL_STOP&quot;
+    Wrapper-&gt;&gt;CI: &quot;onScrollStop()&quot;
+    CI-&gt;&gt;Fabric: &quot;最终 end 事件&quot;
+    Fabric-&gt;&gt;JS: &quot;onScrollEndDrag / onMomentumScrollEnd&quot;</pre></div>
+<h3 id="5-2-为什么-scrollviewcomponentinstance-ontouchevent-不是滚动入口"><a class="heading-anchor" href="#5-2-%E4%B8%BA%E4%BB%80%E4%B9%88-scrollviewcomponentinstance-ontouchevent-%E4%B8%8D%E6%98%AF%E6%BB%9A%E5%8A%A8%E5%85%A5%E5%8F%A3" aria-label="链接到本节">#</a>5.2 为什么 <code>ScrollViewComponentInstance::onTouchEvent()</code> 不是滚动入口</h3>
+<p>当前 <code>ScrollViewTouchHandler</code> 只观察：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">if (action == UI_TOUCH_EVENT_ACTION_UP) {
+  m_scrollViewComponentInstance-&gt;onTouchEventActionUp();
+}</code></pre></div>
+<p>它没有：</p>
+<ul>
+<li>读取每个 MOVE 的坐标差；</li>
+<li>计算 offset；</li>
+<li>计算 fling；</li>
+<li>调用 <code>scrollTo()</code> 模拟手指拖动。</li>
+</ul>
+<p>它的作用只是把 <code>m_isPointerLikelyUp</code> 设为 <code>true</code>，帮助修正 ArkUI 在 overscroll bounce 阶段把状态报成 <code>SCROLL</code>、而 RN 语义希望它仍属于 <code>FLING</code> 的差异。</p>
+<p>所以要严格区分：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ArkUI Scroll 处理触摸：滚动执行者
+ScrollViewTouchHandler：辅助观察触摸状态</code></pre></div>
+<h3 id="5-3-onscrollframebegin-是每帧的-闸门"><a class="heading-anchor" href="#5-3-onscrollframebegin-%E6%98%AF%E6%AF%8F%E5%B8%A7%E7%9A%84-%E9%97%B8%E9%97%A8" aria-label="链接到本节">#</a>5.3 <code>onScrollFrameBegin()</code> 是每帧的“闸门”</h3>
+<p>每个 native 滚动帧开始前，ArkUI 给出：</p>
+<ul>
+<li>本帧 offset；</li>
+<li>ArkUI 当前 scroll state。</li>
+</ul>
+<p>RNOH 可以返回一个新的 remaining offset。当前代码在以下情况返回 <code>0</code>：</p>
+<ol>
+<li><code>scrollEnabled={false}</code>；</li>
+<li>自己或祖先的 JS Responder 正在要求阻止 native responder；</li>
+<li><code>disableIntervalMomentum</code> + snap 已进入 FLING，需要阻止 native 惯性位移，改由 RNOH 选择 snap target。</li>
+</ol>
+<p>正常情况返回原始 <code>offset</code>，让 ArkUI 继续执行本帧滚动。</p>
+<hr>
+<h2 id="6-drag-fling-事件状态机"><a class="heading-anchor" href="#6-drag-fling-%E4%BA%8B%E4%BB%B6%E7%8A%B6%E6%80%81%E6%9C%BA" aria-label="链接到本节">#</a>6. drag / fling 事件状态机</h2>
+<p>RNOH 自己维护：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">enum ScrollState { IDLE, SCROLL, FLING, CANCELING };</code></pre></div>
+<div class="mermaid-wrap"><div class="mermaid">stateDiagram-v2
+    [*] --&gt; IDLE
+    IDLE --&gt; FLING: &quot;onScrollStart：先暂记为 FLING&quot;
+    FLING --&gt; SCROLL: &quot;首个 frame 表明手指仍在拖动&lt;br/&gt;发 scrollBeginDrag&quot;
+    SCROLL --&gt; FLING: &quot;抬手后 frame 进入惯性&lt;br/&gt;先发 scrollEndDrag，再发 momentumScrollBegin&quot;
+    SCROLL --&gt; IDLE: &quot;没有惯性直接 stop&lt;br/&gt;发 scrollEndDrag&quot;
+    FLING --&gt; IDLE: &quot;fling / bounce stop&lt;br/&gt;发 momentumScrollEnd&quot;
+    SCROLL --&gt; CANCELING: &quot;scrollDisabled 或 JS Responder block&quot;
+    FLING --&gt; CANCELING: &quot;scrollDisabled 或 JS Responder block&quot;
+    CANCELING --&gt; IDLE: &quot;onScrollStop&quot;</div><pre class="mermaid-fallback">stateDiagram-v2
+    [*] --&gt; IDLE
+    IDLE --&gt; FLING: &quot;onScrollStart：先暂记为 FLING&quot;
+    FLING --&gt; SCROLL: &quot;首个 frame 表明手指仍在拖动&lt;br/&gt;发 scrollBeginDrag&quot;
+    SCROLL --&gt; FLING: &quot;抬手后 frame 进入惯性&lt;br/&gt;先发 scrollEndDrag，再发 momentumScrollBegin&quot;
+    SCROLL --&gt; IDLE: &quot;没有惯性直接 stop&lt;br/&gt;发 scrollEndDrag&quot;
+    FLING --&gt; IDLE: &quot;fling / bounce stop&lt;br/&gt;发 momentumScrollEnd&quot;
+    SCROLL --&gt; CANCELING: &quot;scrollDisabled 或 JS Responder block&quot;
+    FLING --&gt; CANCELING: &quot;scrollDisabled 或 JS Responder block&quot;
+    CANCELING --&gt; IDLE: &quot;onScrollStop&quot;</pre></div>
+<h3 id="6-1-为什么-onscrollstart-先设置成-fling"><a class="heading-anchor" href="#6-1-%E4%B8%BA%E4%BB%80%E4%B9%88-onscrollstart-%E5%85%88%E8%AE%BE%E7%BD%AE%E6%88%90-fling" aria-label="链接到本节">#</a>6.1 为什么 <code>onScrollStart()</code> 先设置成 FLING</h3>
+<p>ArkUI 的 start 回调本身还不足以判断是：</p>
+<ul>
+<li>手指开始拖动；</li>
+<li>程序化动画；</li>
+<li>惯性或回弹。</li>
+</ul>
+<p>当前实现先暂记 <code>FLING</code>，再等待 <code>onScrollFrameBegin()</code> 给出的 frame state 修正。<code>m_scrollStartFling</code> 用来避免第一次从这个临时 FLING 切到 SCROLL 时错误发送一次 momentum end。</p>
+<h3 id="6-2-常见手指滚动事件顺序"><a class="heading-anchor" href="#6-2-%E5%B8%B8%E8%A7%81%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8%E4%BA%8B%E4%BB%B6%E9%A1%BA%E5%BA%8F" aria-label="链接到本节">#</a>6.2 常见手指滚动事件顺序</h3>
+<p>有惯性时：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">scrollBeginDrag
+-&gt; 多个 scroll
+-&gt; scrollEndDrag
+-&gt; momentumScrollBegin
+-&gt; 多个 scroll
+-&gt; momentumScrollEnd</code></pre></div>
+<p>没有惯性时：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">scrollBeginDrag
+-&gt; 多个 scroll
+-&gt; scrollEndDrag</code></pre></div>
+<p>边界回弹时，抬手后的 bounce 仍应属于 momentum。<code>m_isPointerLikelyUp + isOutOfBound()</code> 就是为这一语义修正服务。</p>
+<hr>
+<h2 id="7-onscroll-怎样从-arkui-回到-js"><a class="heading-anchor" href="#7-onscroll-%E6%80%8E%E6%A0%B7%E4%BB%8E-arkui-%E5%9B%9E%E5%88%B0-js" aria-label="链接到本节">#</a>7. <code>onScroll</code> 怎样从 ArkUI 回到 JS</h2>
+<h3 id="7-1-native-回调链"><a class="heading-anchor" href="#7-1-native-%E5%9B%9E%E8%B0%83%E9%93%BE" aria-label="链接到本节">#</a>7.1 native 回调链</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ArkUI NODE_SCROLL_EVENT_ON_DID_SCROLL
+-&gt; ScrollNode::onNodeEvent()
+-&gt; ScrollNodeDelegate::onScroll()
+-&gt; ScrollViewComponentInstance::onScroll()</code></pre></div>
+<p><code>ScrollNode</code> 只做事件类型到 delegate 方法的转换；实际 RN 逻辑在 <code>ScrollViewComponentInstance</code>。</p>
+<h3 id="7-2-scrollviewcomponentinstance-onscroll-做了什么"><a class="heading-anchor" href="#7-2-scrollviewcomponentinstance-onscroll-%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88" aria-label="链接到本节">#</a>7.2 <code>ScrollViewComponentInstance::onScroll()</code> 做了什么</h3>
+<p>按当前源码顺序：</p>
+<ol>
+<li>读取 <code>contentOffset</code>、<code>contentSize</code>、<code>containerSize</code>；</li>
+<li>无条件把本次 metrics 送给 Native Animated；</li>
+<li>必要时调整 nested scroll mode；</li>
+<li>判断是否应该派发普通 JS <code>scroll</code> 事件；</li>
+<li>派发后更新 Fabric <code>contentOffset</code> State；</li>
+<li>更新 <code>m_currentOffset</code>；</li>
+<li>触发 <code>removeClippedSubviews</code> 的裁剪更新。</li>
+</ol>
+<h3 id="7-3-js-scroll-事件的三个限流层次"><a class="heading-anchor" href="#7-3-js-scroll-%E4%BA%8B%E4%BB%B6%E7%9A%84%E4%B8%89%E4%B8%AA%E9%99%90%E6%B5%81%E5%B1%82%E6%AC%A1" aria-label="链接到本节">#</a>7.3 JS <code>scroll</code> 事件的三个限流层次</h3>
+<p>第一层：时间间隔。</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">scrollEventThrottle == 0
+或
+now - lastDispatchTime &gt; scrollEventThrottle</code></pre></div>
+<p>第二层：位移至少变化 <code>0.01</code>。</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">abs(newOffset - currentOffset) &gt;= 0.01</code></pre></div>
+<p>第三层：Fabric continuous event 合并。</p>
+<p>普通 <code>scroll</code> 用 <code>dispatchUniqueEvent()</code>，进入 asynchronous batched queue；同类型连续事件可以被合并。drag 和 momentum 的 begin/end 用普通 <code>dispatchEvent()</code>，不能按 continuous scroll 的方式丢掉边界事件。</p>
+<p>以下情况会强制允许一次 scroll：</p>
+<ul>
+<li><code>m_allowNextScrollEvent</code>；</li>
+<li>当前 offset 已到 <code>scrollTo</code> 目标附近；</li>
+<li>滚动停止且处于边界，代码主动补发最终 scroll。</li>
+</ul>
+<h3 id="7-4-为什么-native-animated-与-js-onscroll-频率不同"><a class="heading-anchor" href="#7-4-%E4%B8%BA%E4%BB%80%E4%B9%88-native-animated-%E4%B8%8E-js-onscroll-%E9%A2%91%E7%8E%87%E4%B8%8D%E5%90%8C" aria-label="链接到本节">#</a>7.4 为什么 Native Animated 与 JS <code>onScroll</code> 频率不同</h3>
+<p><code>sendEventForNativeAnimations()</code> 在 throttle 判断之前调用。因此：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">每次 ArkUI did-scroll
+    -&gt; Native Animated 都能收到 metrics
+
+普通 JS onScroll
+    -&gt; 还要经过 scrollEventThrottle、位移阈值和 event coalescing</code></pre></div>
+<p>StickyHeader 正是通过 <code>Animated.attachNativeEvent(..., &quot;onScroll&quot;, ...)</code> 订阅 <code>contentOffset.y</code>。这让 sticky transform 不需要等待普通业务 JS 回调逐帧驱动。</p>
+<h3 id="7-5-js-事件-payload"><a class="heading-anchor" href="#7-5-js-%E4%BA%8B%E4%BB%B6-payload" aria-label="链接到本节">#</a>7.5 JS 事件 payload</h3>
+<p>当前 RNOH 发给 JS 的 payload 包括：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">contentOffset: {x, y}
+velocity: {x, y}
+contentInset: {top, left, bottom, right}
+contentSize: {width, height}
+layoutMeasurement: {width, height}
+zoomScale
+responderIgnoreScroll</code></pre></div>
+<p>velocity 不是直接取 ArkUI 的触摸速度，而是 <code>VelocityTracker</code> 对连续 <code>contentOffset + timestamp</code> 样本做拟合；进入 <code>SCROLL</code> 时会 reset。</p>
+<hr>
+<h2 id="8-scrollto-和-scrolltoend-怎样生效"><a class="heading-anchor" href="#8-scrollto-%E5%92%8C-scrolltoend-%E6%80%8E%E6%A0%B7%E7%94%9F%E6%95%88" aria-label="链接到本节">#</a>8. <code>scrollTo()</code> 和 <code>scrollToEnd()</code> 怎样生效</h2>
+<h3 id="8-1-scrollto-完整命令链"><a class="heading-anchor" href="#8-1-scrollto-%E5%AE%8C%E6%95%B4%E5%91%BD%E4%BB%A4%E9%93%BE" aria-label="链接到本节">#</a>8.1 <code>scrollTo()</code> 完整命令链</h3>
+<div class="mermaid-wrap"><div class="mermaid">sequenceDiagram
+    participant App as &quot;业务 JS&quot;
+    participant Scroll as &quot;ScrollView.harmony.js&quot;
+    participant Cmd as &quot;ScrollViewCommands&quot;
+    participant Scheduler as &quot;SchedulerDelegate&quot;
+    participant Mount as &quot;MountingManagerCAPI&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Node as &quot;ScrollNode&quot;
+    participant ArkUI as &quot;ARKUI_NODE_SCROLL&quot;
+
+    App-&gt;&gt;Scroll: &quot;ref.scrollTo({x, y, animated})&quot;
+    Scroll-&gt;&gt;Cmd: &quot;Commands.scrollTo(nativeInstance, x, y, animated)&quot;
+    Cmd-&gt;&gt;Scheduler: &quot;Fabric dispatchCommand&quot;
+    Scheduler-&gt;&gt;Mount: &quot;主线程 dispatchCommand&quot;
+    Mount-&gt;&gt;CI: &quot;handleCommand('scrollTo', args)&quot;
+    CI-&gt;&gt;CI: &quot;RTL 修正 + 保存 targetOffset&quot;
+    CI-&gt;&gt;Node: &quot;scrollTo(x, y, animated, overflowEnabled)&quot;
+    Node-&gt;&gt;ArkUI: &quot;setAttribute(NODE_SCROLL_OFFSET)&quot;
+    ArkUI--&gt;&gt;CI: &quot;后续仍通过 scroll events 回报实际结果&quot;</div><pre class="mermaid-fallback">sequenceDiagram
+    participant App as &quot;业务 JS&quot;
+    participant Scroll as &quot;ScrollView.harmony.js&quot;
+    participant Cmd as &quot;ScrollViewCommands&quot;
+    participant Scheduler as &quot;SchedulerDelegate&quot;
+    participant Mount as &quot;MountingManagerCAPI&quot;
+    participant CI as &quot;ScrollViewComponentInstance&quot;
+    participant Node as &quot;ScrollNode&quot;
+    participant ArkUI as &quot;ARKUI_NODE_SCROLL&quot;
+
+    App-&gt;&gt;Scroll: &quot;ref.scrollTo({x, y, animated})&quot;
+    Scroll-&gt;&gt;Cmd: &quot;Commands.scrollTo(nativeInstance, x, y, animated)&quot;
+    Cmd-&gt;&gt;Scheduler: &quot;Fabric dispatchCommand&quot;
+    Scheduler-&gt;&gt;Mount: &quot;主线程 dispatchCommand&quot;
+    Mount-&gt;&gt;CI: &quot;handleCommand('scrollTo', args)&quot;
+    CI-&gt;&gt;CI: &quot;RTL 修正 + 保存 targetOffset&quot;
+    CI-&gt;&gt;Node: &quot;scrollTo(x, y, animated, overflowEnabled)&quot;
+    Node-&gt;&gt;ArkUI: &quot;setAttribute(NODE_SCROLL_OFFSET)&quot;
+    ArkUI--&gt;&gt;CI: &quot;后续仍通过 scroll events 回报实际结果&quot;</pre></div>
+<p><code>ScrollNode::scrollTo()</code> 当前写入的参数包含：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">x
+y
+duration = animated ? 250ms : 0
+curve = LINEAR
+smooth = 0
+scrollToOverflowEnabled</code></pre></div>
+<p>因此当前 Harmony 的 <code>animated: true</code> 是固定 250ms 的线性动画，不是 JS 自己逐帧插值。</p>
+<h3 id="8-2-为什么要保存-mtargetoffsetofscrolltocommand"><a class="heading-anchor" href="#8-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E4%BF%9D%E5%AD%98-mtargetoffsetofscrolltocommand" aria-label="链接到本节">#</a>8.2 为什么要保存 <code>m_targetOffsetOfScrollToCommand</code></h3>
+<p>调用命令时，<code>ScrollViewComponentInstance</code> 保存目标 offset。后续 <code>onScroll()</code> 如果发现实际 offset 已非常接近目标，会强制派发一次 scroll 并清空目标。</p>
+<p>这是为 <code>VirtualizedList onEndReachedThreshold={0}</code> 等边界场景服务：即使回弹或节流造成最后一次普通 scroll 容易缺失，也尽量让列表收到“到达目标”的最终位置。</p>
+<h3 id="8-3-scrolltoend"><a class="heading-anchor" href="#8-3-scrolltoend" aria-label="链接到本节">#</a>8.3 <code>scrollToEnd()</code></h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">JS Commands.scrollToEnd(animated)
+-&gt; ScrollViewComponentInstance::scrollToEnd()
+-&gt; 根据横向/纵向选择 contentSize.width 或 contentSize.height
+-&gt; ScrollNode::scrollTo()
+-&gt; ArkUI 将超出合法范围的目标夹到末端</code></pre></div>
+<p>横向 RTL 会选择相反的 x 方向；普通横向 LTR 使用 <code>contentSize.width</code>，纵向使用 <code>contentSize.height</code>。代码依赖 ArkUI 做合法边界 clamp，而不是自己先减去 container size。</p>
+<h3 id="8-4-还有哪些逻辑会内部调用-scrollto"><a class="heading-anchor" href="#8-4-%E8%BF%98%E6%9C%89%E5%93%AA%E4%BA%9B%E9%80%BB%E8%BE%91%E4%BC%9A%E5%86%85%E9%83%A8%E8%B0%83%E7%94%A8-scrollto" aria-label="链接到本节">#</a>8.4 还有哪些逻辑会内部调用 <code>scrollTo</code></h3>
+<table>
+<thead>
+<tr>
+<th>触发点</th>
+<th>目的</th>
+<th>动画</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>contentOffset</code> prop 变化</td>
+<td>同步声明的初始/新位置</td>
+<td>否</td>
+</tr>
+<tr>
+<td>JS <code>scrollTo</code></td>
+<td>执行业务目标</td>
+<td>由参数决定</td>
+</tr>
+<tr>
+<td>JS <code>scrollToEnd</code></td>
+<td>到内容末端</td>
+<td>由参数决定</td>
+</tr>
+<tr>
+<td>内容变小导致当前 offset 越界</td>
+<td>拉回合法范围</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>maintainVisibleContentPosition</code></td>
+<td>插入内容后保持首个可见项不跳</td>
+<td>先否，满足阈值时再动画到顶部</td>
+</tr>
+<tr>
+<td>KeyboardAvoidingView 变化</td>
+<td>避免目标输入框被键盘挡住</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>disableIntervalMomentum</code></td>
+<td>抬手后移动到选定 snap target</td>
+<td>是</td>
+</tr>
+</tbody></table>
+<p>这再次说明：<code>scrollTo</code> 是主动位置控制工具，不是手指拖动实现。</p>
+<hr>
+<h2 id="9-摩擦-惯性-回弹-分页和吸附"><a class="heading-anchor" href="#9-%E6%91%A9%E6%93%A6-%E6%83%AF%E6%80%A7-%E5%9B%9E%E5%BC%B9-%E5%88%86%E9%A1%B5%E5%92%8C%E5%90%B8%E9%99%84" aria-label="链接到本节">#</a>9. 摩擦、惯性、回弹、分页和吸附</h2>
+<h3 id="9-1-decelerationrate-arkui-friction"><a class="heading-anchor" href="#9-1-decelerationrate-arkui-friction" aria-label="链接到本节">#</a>9.1 decelerationRate → ArkUI friction</h3>
+<p>JS 显式传字符串时：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">&quot;normal&quot; -&gt; 0.997
+&quot;fast&quot;   -&gt; 0.992</code></pre></div>
+<p>RNOH C++ 再映射：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">0.997 -&gt; ArkUI friction 0.75
+0.992 -&gt; ArkUI friction 2.0
+其他合法数值 -&gt; max(0.1, 250 * (1 - rate))
+非法、非有限、&lt; 0 或 &gt;= 1 -&gt; 0.75</code></pre></div>
+<p>当前源码还有一个需要特别知道的“路径差异”：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">显式 decelerationRate=&quot;normal&quot;
+    -&gt; JS helper 生成 0.997
+    -&gt; 命中 Harmony normal
+
+完全省略 decelerationRate
+    -&gt; JS 不调用 helper
+    -&gt; Fabric ScrollViewProps 当前默认值为 0.998
+    -&gt; 走数值公式，约得到 0.5</code></pre></div>
+<p>所以在当前工作树里，“省略”与“显式 normal”不是同一条控制路径。理解摩擦问题时必须先区分字符串、显式数值和省略三类输入。</p>
+<h3 id="9-2-flingspeedlimit"><a class="heading-anchor" href="#9-2-flingspeedlimit" aria-label="链接到本节">#</a>9.2 flingSpeedLimit</h3>
+<p>Harmony 自定义 prop <code>flingSpeedLimit</code> 最终设置 <code>NODE_SCROLL_FLING_SPEED_LIMIT</code>，但仅在系统 API 18+ 生效。它限制最大 fling 速度，不替代 friction。</p>
+<h3 id="9-3-bounces-与-overscrollmode"><a class="heading-anchor" href="#9-3-bounces-%E4%B8%8E-overscrollmode" aria-label="链接到本节">#</a>9.3 bounces 与 overScrollMode</h3>
+<p>优先级：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">显式 overScrollMode
+    -&gt; never: NONE
+    -&gt; always: SPRING
+    -&gt; auto: 内容小于容器时 NONE，否则 SPRING
+
+没有 overScrollMode
+    -&gt; bounces 决定 NONE / SPRING
+    -&gt; alwaysBounceHorizontal/Vertical 决定内容不足时是否仍允许边缘效果</code></pre></div>
+<p>回弹仍会产生 offset 变化。上层 StickyHeader、<code>Animated.diffClamp</code>、方向判断等看到的是 ArkUI 实际回报的 <code>contentOffset</code>，因此边界语义可能与 Android 不完全一致。</p>
+<h3 id="9-4-paging-与-snap"><a class="heading-anchor" href="#9-4-paging-%E4%B8%8E-snap" aria-label="链接到本节">#</a>9.4 paging 与 snap</h3>
+<p>JS 层先避免 <code>pagingEnabled</code> 与显式 snap 同时开启。C++ 层：</p>
+<ul>
+<li><code>pagingEnabled</code> → ArkUI paging 属性；</li>
+<li><code>snapToOffsets</code>：删除 NaN、排序；只有一个 offset 时追加 <code>infinity</code>；</li>
+<li><code>snapToInterval</code>：把 interval 作为 snap point；</li>
+<li><code>snapToAlignment</code>：转换为 ArkUI start / center / end；</li>
+<li>没有 snap 配置时 reset <code>NODE_SCROLL_SNAP</code>。</li>
+</ul>
+<p><code>disableIntervalMomentum=true</code> 时：</p>
+<ol>
+<li>frame 从拖动进入 FLING；</li>
+<li><code>onScrollFrameBegin()</code> 返回 <code>0</code>，阻止 native 惯性继续移动；</li>
+<li><code>emitOnScrollEndDragEvent()</code> 调用 <code>disableIntervalMomentum()</code>；</li>
+<li>根据最近一帧方向和当前 offset 选择上一个/下一个 snap target；</li>
+<li>动画 <code>scrollTo</code> 目标。</li>
+</ol>
+<hr>
+<h2 id="10-谁可以禁止-scrollview-滚动"><a class="heading-anchor" href="#10-%E8%B0%81%E5%8F%AF%E4%BB%A5%E7%A6%81%E6%AD%A2-scrollview-%E6%BB%9A%E5%8A%A8" aria-label="链接到本节">#</a>10. 谁可以禁止 ScrollView 滚动</h2>
+<p>最终是否允许 ArkUI 响应触摸，由：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">isEnableScrollInteraction(scrollEnabled)</code></pre></div>
+<p>统一判断。</p>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TD
+    Start[&quot;计算 EnableScrollInteraction&quot;]
+    Blocked{&quot;m_isNativeResponderBlocked ?&quot;}
+    Enabled{&quot;scrollEnabled ?&quot;}
+    Nested{&quot;显式 nestedScrollEnabled=false&lt;br/&gt;且存在祖先 ScrollView ?&quot;}
+    No[&quot;false：关闭 NODE_SCROLL_ENABLE_SCROLL_INTERACTION&quot;]
+    Yes[&quot;true：允许 ArkUI 原生滚动&quot;]
+
+    Start --&gt; Blocked
+    Blocked --&gt;|&quot;是&quot;| No
+    Blocked --&gt;|&quot;否&quot;| Enabled
+    Enabled --&gt;|&quot;否&quot;| No
+    Enabled --&gt;|&quot;是&quot;| Nested
+    Nested --&gt;|&quot;是&quot;| No
+    Nested --&gt;|&quot;否&quot;| Yes</div><pre class="mermaid-fallback">flowchart TD
+    Start[&quot;计算 EnableScrollInteraction&quot;]
+    Blocked{&quot;m_isNativeResponderBlocked ?&quot;}
+    Enabled{&quot;scrollEnabled ?&quot;}
+    Nested{&quot;显式 nestedScrollEnabled=false&lt;br/&gt;且存在祖先 ScrollView ?&quot;}
+    No[&quot;false：关闭 NODE_SCROLL_ENABLE_SCROLL_INTERACTION&quot;]
+    Yes[&quot;true：允许 ArkUI 原生滚动&quot;]
+
+    Start --&gt; Blocked
+    Blocked --&gt;|&quot;是&quot;| No
+    Blocked --&gt;|&quot;否&quot;| Enabled
+    Enabled --&gt;|&quot;否&quot;| No
+    Enabled --&gt;|&quot;是&quot;| Nested
+    Nested --&gt;|&quot;是&quot;| No
+    Nested --&gt;|&quot;否&quot;| Yes</pre></div>
+<h3 id="10-1-js-responder"><a class="heading-anchor" href="#10-1-js-responder" aria-label="链接到本节">#</a>10.1 JS Responder</h3>
+<p>Fabric 设置 JS Responder 时：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">SchedulerDelegate::schedulerDidSetIsJSResponder
+-&gt; MountingManagerCAPI::setIsJsResponder
+-&gt; 标记目标 ComponentInstance
+-&gt; 沿祖先链 setNativeResponderBlocked(blockNativeResponder)
+-&gt; ScrollViewComponentInstance::onNativeResponderBlockChange
+-&gt; 重新计算 NODE_SCROLL_ENABLE_SCROLL_INTERACTION</code></pre></div>
+<p>此外，每帧 <code>onScrollFrameBegin()</code> 还会向上检查祖先 <code>isJSResponder()</code>；若命中，就把本帧 offset 置 0、进入 <code>CANCELING</code> 并暂时关闭原生滚动。<code>onScrollStop()</code> 再恢复已计算好的 <code>m_enableScrollInteraction</code>。</p>
+<h3 id="10-2-nested-scroll"><a class="heading-anchor" href="#10-2-nested-scroll" aria-label="链接到本节">#</a>10.2 nested scroll</h3>
+<p>构造时默认：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">SELF_FIRST</code></pre></div>
+<p>当前自动策略大致是：</p>
+<ul>
+<li>内容内部仍可滚动时，切成 <code>SELF_ONLY</code>，优先让自己消费；</li>
+<li>到开始或结束边界并停止后，恢复 <code>SELF_FIRST</code>，允许把剩余滚动交给父级；</li>
+<li>第三方调用 <code>setNestedScrollMode(forward, backward)</code> 后，设置 <code>m_scrollNestedModeFromOutside=true</code>，自动切换逻辑不再覆盖外部模式；</li>
+<li>嵌套 ScrollView 显式 <code>nestedScrollEnabled={false}</code> 时，直接关闭其 scroll interaction。</li>
+</ul>
+<h3 id="10-3-第三方手势库怎样插入"><a class="heading-anchor" href="#10-3-%E7%AC%AC%E4%B8%89%E6%96%B9%E6%89%8B%E5%8A%BF%E5%BA%93%E6%80%8E%E6%A0%B7%E6%8F%92%E5%85%A5" aria-label="链接到本节">#</a>10.3 第三方手势库怎样插入</h3>
+<p>RNGH（React Native Gesture Handler）不是 ArkUI 滚动物理执行者。当前 RNOH 适配中：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ArkUI 原始触摸
+├── ARKUI_NODE_SCROLL：真正滚动
+└── RNGH Root Touch Handler：手势状态机
+
+RNGH 手势竞争结果
+-&gt; NativeResponderBlock / Scroll Lock
+-&gt; ScrollViewComponentInstance
+-&gt; NODE_SCROLL_ENABLE_SCROLL_INTERACTION</code></pre></div>
+<p>它与 Android <code>NativeViewGestureHandler -&gt; view.onTouchEvent()</code> 的机制不同。鸿蒙当前主要通过“是否允许 ScrollNode 继续消费原始触摸”达到行为适配，而不是把事件重新注入 ScrollView。</p>
+<p>这部分的专项背景可继续阅读：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">D:\rn72_0610\手势问题\Android与RNOH_NativeViewGestureHandler_ScrollView调用链.md</code></pre></div>
+<hr>
+<h2 id="11-内容变化-列表-stickyheader-下拉刷新和键盘"><a class="heading-anchor" href="#11-%E5%86%85%E5%AE%B9%E5%8F%98%E5%8C%96-%E5%88%97%E8%A1%A8-stickyheader-%E4%B8%8B%E6%8B%89%E5%88%B7%E6%96%B0%E5%92%8C%E9%94%AE%E7%9B%98" aria-label="链接到本节">#</a>11. 内容变化、列表、StickyHeader、下拉刷新和键盘</h2>
+<h3 id="11-1-内容尺寸变化"><a class="heading-anchor" href="#11-1-%E5%86%85%E5%AE%B9%E5%B0%BA%E5%AF%B8%E5%8F%98%E5%8C%96" aria-label="链接到本节">#</a>11.1 内容尺寸变化</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">children layout 变化
+-&gt; ScrollViewShadowNode 重新计算 contentBoundingRect
+-&gt; ScrollViewState contentSize 变化
+-&gt; ScrollViewComponentInstance::onStateChanged
+-&gt; 设置内部内容 Stack 大小
+-&gt; m_contentSizeChanged = true</code></pre></div>
+<p>事务结束时 <code>updateOffsetAfterChildChange()</code> 只在 <code>IDLE</code> 状态处理：</p>
+<ul>
+<li>若内容变小导致当前 offset 超出新范围；</li>
+<li>把横向或纵向 offset clamp 到 <code>[0, contentSize - containerSize]</code>；</li>
+<li>非动画 <code>scrollTo</code> 合法位置。</li>
+</ul>
+<p>这样可以避免滚动过程中内容变化立刻抢走 ArkUI 的控制权。</p>
+<h3 id="11-2-maintainvisiblecontentposition"><a class="heading-anchor" href="#11-2-maintainvisiblecontentposition" aria-label="链接到本节">#</a>11.2 maintainVisibleContentPosition</h3>
+<p>每次 finalize：</p>
+<ol>
+<li>记录 <code>minIndexForVisible</code> 之后第一个可见 child 的 tag 和位置；</li>
+<li>下一次内容变化后，用相同 tag 找到它的新位置；</li>
+<li>计算 <code>deltaX/deltaY</code>；</li>
+<li>当前 offset 加上 delta，保持该 child 的视觉位置；</li>
+<li>如果之前离顶部不超过 <code>autoscrollToTopThreshold</code>，再动画到顶部。</li>
+</ol>
+<p>它只按 <code>contentOffset</code> 和 child <code>frame.origin</code> 判断可见，不考虑遮挡和复杂 transform。</p>
+<h3 id="11-3-flatlist-virtualizedlist-与-scrollview"><a class="heading-anchor" href="#11-3-flatlist-virtualizedlist-%E4%B8%8E-scrollview" aria-label="链接到本节">#</a>11.3 FlatList / VirtualizedList 与 ScrollView</h3>
+<p>默认情况下，VirtualizedList 最终仍渲染 <code>&lt;ScrollView {...props} /&gt;</code>。它不是另一套 native 滚动器：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">FlatList / VirtualizedList
+-&gt; 默认 ScrollView
+-&gt; 同一套 RNOH ScrollViewComponentInstance
+-&gt; 同一个 ArkUI ScrollNode</code></pre></div>
+<p>VirtualizedList 在 JS <code>_onScroll()</code> 中读取：</p>
+<ul>
+<li><code>layoutMeasurement</code>；</li>
+<li><code>contentSize</code>；</li>
+<li><code>contentOffset</code>；</li>
+<li>timestamp。</li>
+</ul>
+<p>随后计算可见长度、内容长度、offset、速度，驱动：</p>
+<ul>
+<li>渲染窗口；</li>
+<li>viewability；</li>
+<li>blankness；</li>
+<li><code>onEndReached</code>；</li>
+<li>nested child list metrics。</li>
+</ul>
+<p><code>scrollToIndex</code>、<code>scrollToOffset</code> 最后也会换算成 offset，调用底层 ScrollView 的 <code>scrollTo()</code>。</p>
+<p>同方向嵌套 VirtualizedList 会让内层默认渲染普通 <code>View</code>，复用父级的实际滚动容器；这与 native ScrollView 的 nested scroll 是两个不同层面的“嵌套”概念。</p>
+<h3 id="11-4-removeclippedsubviews"><a class="heading-anchor" href="#11-4-removeclippedsubviews" aria-label="链接到本节">#</a>11.4 removeClippedSubviews</h3>
+<p>native <code>onScroll()</code> 在实际派发并接受本次 offset 后调用 <code>updateContentClippedSubviews()</code>；滚动结束也会再更新一次。</p>
+<p>有 StickyHeader 时，Harmony JS 与 Android 一样会强制内容容器的 <code>removeClippedSubviews=false</code>，避免 sticky child 被错误裁掉。</p>
+<h3 id="11-5-stickyheader"><a class="heading-anchor" href="#11-5-stickyheader" aria-label="链接到本节">#</a>11.5 StickyHeader</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">stickyHeaderIndices
+-&gt; ScrollView.harmony.js 包装指定 child 为 ScrollViewStickyHeader
+-&gt; attachNativeEvent 绑定 native onScroll.contentOffset.y
+-&gt; ScrollViewComponentInstance 每次 did-scroll 通知 Native Animated
+-&gt; ScrollViewStickyHeader 用 interpolate / diffClamp 计算 translateY</code></pre></div>
+<p>因此 StickyHeader 问题要同时检查：</p>
+<ul>
+<li>ArkUI 回报的边界/回弹 offset；</li>
+<li>RNOH <code>sendEventForNativeAnimations()</code>；</li>
+<li><code>ScrollViewStickyHeader</code> 的 <code>interpolate</code> 和 <code>Animated.diffClamp</code>；</li>
+<li><code>stickyHeaderHiddenOnScroll</code> 是否改变 offset 计算。</li>
+</ul>
+<p>不能只看普通业务 <code>onScroll</code> 是否触发。</p>
+<h3 id="11-6-refreshcontrol"><a class="heading-anchor" href="#11-6-refreshcontrol" aria-label="链接到本节">#</a>11.6 RefreshControl</h3>
+<p>Harmony JS 复用 Android 风格的包裹结构，让 RefreshControl 成为 ScrollView 父节点。native 侧：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ARKUI_NODE_REFRESH offset change
+-&gt; PullToRefreshViewComponentInstance::onRefreshNodeOffsetChange
+-&gt; 找到第一个 child ScrollViewComponentInstance
+-&gt; onPullToRefreshOffsetChange(offset)
+-&gt; 主动调用 ScrollView onScroll()</code></pre></div>
+<p>这是因为 PullToRefresh 拉动期间 ScrollNode 本身可能不发普通 scroll 事件，而 StickyHeader 仍需要得到连续 offset。</p>
+<p><code>getScrollOffset()</code> 会扣除 refresh offset；<code>onScrollStop()</code> 延迟清理该值，以避免松手后的第一帧导致 sticky 闪动。</p>
+<h3 id="11-7-键盘避让"><a class="heading-anchor" href="#11-7-%E9%94%AE%E7%9B%98%E9%81%BF%E8%AE%A9" aria-label="链接到本节">#</a>11.7 键盘避让</h3>
+<p><code>KeyboardAvoidingView</code> 通过私有 raw prop <code>__keyboardAvoidingViewBottomHeight</code> 标记由键盘引起的 mutation。ScrollView 直接位于它内部时：</p>
+<ol>
+<li>props 变化标记下次 render 需要调整；</li>
+<li><code>onFinalizeUpdates()</code> 通过 <code>KeyboardAvoider</code> 找到输入框底边；</li>
+<li>若输入框会被遮挡，动画 <code>scrollTo</code> 新位置。</li>
+</ol>
+<p>这是平台自动避让不足时的 RNOH 补偿逻辑，不属于普通手指滚动。</p>
+<h3 id="11-8-rtl"><a class="heading-anchor" href="#11-8-rtl" aria-label="链接到本节">#</a>11.8 RTL</h3>
+<p>ArkUI 横向 RTL offset 从右侧计算，而 RN 始终希望从左侧表达。RNOH 用同一个对称转换处理输入和输出：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">RN x &lt;-&gt; contentWidth - containerWidth - ArkUI x</code></pre></div>
+<p>因此排查横向 RTL 时，要分别看：</p>
+<ul>
+<li>JS 传入的 RN x；</li>
+<li><code>adjustOffsetToRTL()</code> 后写给 ArkUI 的 x；</li>
+<li><code>getScrollOffset()</code> 转回 RN 语义后的 x。</li>
+</ul>
+<hr>
+<h2 id="12-各层到底负责什么"><a class="heading-anchor" href="#12-%E5%90%84%E5%B1%82%E5%88%B0%E5%BA%95%E8%B4%9F%E8%B4%A3%E4%BB%80%E4%B9%88" aria-label="链接到本节">#</a>12. 各层到底负责什么</h2>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>拥有的控制权</th>
+<th>不负责什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>业务 JS</td>
+<td>传 props、调用命令、响应事件</td>
+<td>不实现 MOVE、fling 和回弹</td>
+</tr>
+<tr>
+<td><code>ScrollView.harmony.js</code></td>
+<td>默认值、组合内容容器、Responder、键盘、StickyHeader、RefreshControl</td>
+<td>不直接操作 ArkUI 节点</td>
+</tr>
+<tr>
+<td>Fabric Props / ShadowNode / State</td>
+<td>类型化 props、Yoga 布局、内容尺寸、offset 状态、事务</td>
+<td>不执行平台滚动物理</td>
+</tr>
+<tr>
+<td>Scheduler / MountingManager</td>
+<td>把 mutation、command、responder 切到 native 主线程并路由到实例</td>
+<td>不决定 ScrollView 业务策略</td>
+</tr>
+<tr>
+<td><code>ScrollViewComponentInstance</code></td>
+<td>RN ↔ ArkUI 语义转换、状态机、限流、snap、nested、事件和内部补偿</td>
+<td>不逐 MOVE 实现原生滚动物理</td>
+</tr>
+<tr>
+<td><code>ScrollNode</code></td>
+<td>把方法变成 <code>NODE_SCROLL_*</code> 属性和事件 delegate</td>
+<td>不决定何时 scrollTo、何时发 RN 事件</td>
+</tr>
+<tr>
+<td><code>ARKUI_NODE_SCROLL</code></td>
+<td>真实拖动、offset、惯性、回弹、paging、snap、nested 执行</td>
+<td>不知道 JS 业务回调的含义</td>
+</tr>
+<tr>
+<td>EventEmitter / Native Animated</td>
+<td>把 native 结果送回 RN 消费者</td>
+<td>不改变已经发生的 native 滚动</td>
+</tr>
+</tbody></table>
+<p>一句话总结：</p>
+<blockquote>
+<p>JS 决策，Fabric 运输和建模，RNOH 翻译与协调，ArkUI 执行，EventEmitter 回报。</p>
+</blockquote>
+<hr>
+<h2 id="13-用一个例子串完整流程"><a class="heading-anchor" href="#13-%E7%94%A8%E4%B8%80%E4%B8%AA%E4%BE%8B%E5%AD%90%E4%B8%B2%E5%AE%8C%E6%95%B4%E6%B5%81%E7%A8%8B" aria-label="链接到本节">#</a>13. 用一个例子串完整流程</h2>
+<div class="code-frame"><span class="code-frame__label">tsx</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-tsx">&lt;ScrollView
+  horizontal={false}
+  scrollEnabled={true}
+  decelerationRate=&quot;fast&quot;
+  snapToInterval={200}
+  scrollEventThrottle={16}
+  onScroll={handleScroll}
+&gt;
+  {children}
+&lt;/ScrollView&gt;</code></pre></div>
+<h3 id="13-1-首次-render"><a class="heading-anchor" href="#13-1-%E9%A6%96%E6%AC%A1-render" aria-label="链接到本节">#</a>13.1 首次 render</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">1. ScrollView.harmony.js
+   - 选择纵向 host component
+   - 创建 ScrollContentView
+   - &quot;fast&quot; 转为 0.992
+   - snapToInterval 存在，所以 pagingEnabled=false
+
+2. Fabric
+   - 解析 ScrollViewProps
+   - Yoga 布局
+   - children 包围盒写入 ScrollViewState.contentBoundingRect
+
+3. MountingManager
+   - 创建 ScrollViewComponentInstance
+   - 建立 ScrollNode -&gt; Stack -&gt; ScrollContentView 层级
+   - 下发 layout / state / props
+
+4. ScrollViewComponentInstance
+   - vertical
+   - friction=2.0
+   - snap interval=200
+   - scroll interaction=true
+
+5. ScrollNode
+   - 写 NODE_SCROLL_SCROLL_DIRECTION
+   - 写 NODE_SCROLL_FRICTION
+   - 写 NODE_SCROLL_SNAP
+   - 写 NODE_SCROLL_ENABLE_SCROLL_INTERACTION</code></pre></div>
+<h3 id="13-2-用户手指滚动"><a class="heading-anchor" href="#13-2-%E7%94%A8%E6%88%B7%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8" aria-label="链接到本节">#</a>13.2 用户手指滚动</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">1. ArkUI 直接消费 MOVE，更新 offset
+2. frame begin 进入 SCROLL
+3. RNOH 发 scrollBeginDrag
+4. 每个 did-scroll：
+   - Native Animated 先收到
+   - 普通 onScroll 经 16ms throttle + 0.01 位移阈值 + coalescing
+   - Fabric State 同步当前 contentOffset
+5. 手指抬起：
+   - TouchHandler 记录 pointer likely up
+   - ArkUI 进入 fling
+   - RNOH 发 scrollEndDrag、momentumScrollBegin
+6. ArkUI 执行摩擦和 snap
+7. stop 后 RNOH 发 momentumScrollEnd</code></pre></div>
+<h3 id="13-3-业务调用-scrollto"><a class="heading-anchor" href="#13-3-%E4%B8%9A%E5%8A%A1%E8%B0%83%E7%94%A8-scrollto" aria-label="链接到本节">#</a>13.3 业务调用 scrollTo</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ref.scrollTo({y: 600, animated: true})
+-&gt; Fabric command
+-&gt; ScrollViewComponentInstance
+-&gt; NODE_SCROLL_OFFSET(y=600, duration=250ms, LINEAR)
+-&gt; ArkUI 动画
+-&gt; 同一套 scroll event 链回报实际 offset</code></pre></div>
+<hr>
+<h2 id="14-排查问题时从哪里下手"><a class="heading-anchor" href="#14-%E6%8E%92%E6%9F%A5%E9%97%AE%E9%A2%98%E6%97%B6%E4%BB%8E%E5%93%AA%E9%87%8C%E4%B8%8B%E6%89%8B" aria-label="链接到本节">#</a>14. 排查问题时从哪里下手</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>第一组检查点</th>
+<th>关键变量 / 方法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>手指完全滚不动</td>
+<td>interaction gate</td>
+<td><code>scrollEnabled</code>、<code>m_isNativeResponderBlocked</code>、<code>isNestedScroll()</code>、<code>NODE_SCROLL_ENABLE_SCROLL_INTERACTION</code></td>
+</tr>
+<tr>
+<td>节点在动但 JS <code>onScroll</code> 少或没有</td>
+<td>回调与限流</td>
+<td>ArkUI DID_SCROLL、<code>onScroll()</code>、<code>m_scrollEventThrottle</code>、<code>m_lastScrollDispatchTime</code>、<code>dispatchUniqueEvent</code></td>
+</tr>
+<tr>
+<td><code>scrollTo</code> 没生效</td>
+<td>command 链</td>
+<td><code>Commands.scrollTo</code>、<code>schedulerDidDispatchCommand</code>、Component tag、<code>onCommandReceived</code>、<code>NODE_SCROLL_OFFSET</code></td>
+</tr>
+<tr>
+<td><code>scrollTo</code> 横向 RTL 位置反了</td>
+<td>坐标转换</td>
+<td><code>adjustOffsetToRTL()</code> 输入和 <code>getScrollOffset()</code> 输出</td>
+</tr>
+<tr>
+<td>drag / momentum 顺序不对</td>
+<td>状态机</td>
+<td><code>m_scrollState</code>、ArkUI frame state、<code>m_scrollStartFling</code>、<code>m_isPointerLikelyUp</code></td>
+</tr>
+<tr>
+<td>松手后 snap 不对</td>
+<td>snap 决策</td>
+<td><code>m_recentScrollFrameOffset</code>、<code>m_snapToOffsets</code>、<code>getNextSnapTarget()</code>、frame begin 返回值</td>
+</tr>
+<tr>
+<td>内容增删后跳动</td>
+<td>State 与补偿</td>
+<td><code>m_contentSizeChanged</code>、<code>updateOffsetAfterChildChange()</code>、<code>maintainVisibleContentPosition</code></td>
+</tr>
+<tr>
+<td>嵌套列表争抢</td>
+<td>两类 nested + responder</td>
+<td>VirtualizedList 同方向嵌套、ArkUI nested mode、JS Responder、RNGH Scroll Lock</td>
+</tr>
+<tr>
+<td>StickyHeader 抖动/回弹重现</td>
+<td>Native Animated 路径</td>
+<td>实际 <code>contentOffset</code>、<code>sendEventForNativeAnimations()</code>、<code>Animated.diffClamp</code></td>
+</tr>
+<tr>
+<td>下拉刷新时 sticky 闪动</td>
+<td>Refresh offset 联动</td>
+<td><code>onPullToRefreshOffsetChange()</code>、<code>m_onPullToRefreshOffsetY</code>、<code>onScrollStop()</code></td>
+</tr>
+</tbody></table>
+<h3 id="14-1-推荐的最小日志顺序"><a class="heading-anchor" href="#14-1-%E6%8E%A8%E8%8D%90%E7%9A%84%E6%9C%80%E5%B0%8F%E6%97%A5%E5%BF%97%E9%A1%BA%E5%BA%8F" aria-label="链接到本节">#</a>14.1 推荐的最小日志顺序</h3>
+<p>不要一开始打印所有事件。按问题类型选择一条链：</p>
+<p>手指滚动/状态问题：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">onTouchEventActionUp
+-&gt; onScrollFrameBegin(offset, arkUIScrollState, oldState, newState)
+-&gt; onScroll(contentOffset)
+-&gt; onScrollStop(finalState, finalOffset)</code></pre></div>
+<p>程序化滚动问题：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">JS x/y/animated
+-&gt; onCommandReceived args
+-&gt; RTL 后 target
+-&gt; ScrollNode::scrollTo 写入值
+-&gt; ArkUI 回报的实际 contentOffset</code></pre></div>
+<p>滚动被禁止：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">scrollEnabled
+m_isNativeResponderBlocked
+ancestor isJSResponder
+nestedScrollEnabled
+isNestedScroll
+最终 m_enableScrollInteraction</code></pre></div>
+<p>snap 问题：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">contentSize / containerSize
+currentOffset
+recentScrollFrameOffset
+snap points
+nextSnapTarget
+frame begin 返回值</code></pre></div>
+<hr>
+<h2 id="15-关键源码索引"><a class="heading-anchor" href="#15-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" aria-label="链接到本节">#</a>15. 关键源码索引</h2>
+<h3 id="js-层"><a class="heading-anchor" href="#js-%E5%B1%82" aria-label="链接到本节">#</a>JS 层</h3>
+<ul>
+<li><code>D:\rn72_0610\r\react-native-harmony\Libraries\Components\ScrollView\ScrollView.harmony.js</code><ul>
+<li>native component 选择：63-81</li>
+<li><code>scrollTo</code>：890-936</li>
+<li><code>scrollToEnd</code>：946-955</li>
+<li>Native Animated 绑定：1123-1137</li>
+<li>JS <code>onScroll</code> 包装：1177-1195</li>
+<li>drag / momentum 处理：1312-1364</li>
+<li>StickyHeader 包装：1719-1753</li>
+<li>props 归一化：1803-1898</li>
+<li>native 结构 render：1901-1964</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\react-native-harmony\Libraries\Components\ScrollView\processDecelerationRate.harmony.js</code></li>
+<li><code>D:\rn72_0610\r\tester\node_modules\react-native\Libraries\Components\ScrollView\ScrollViewCommands.js</code></li>
+<li><code>D:\rn72_0610\r\tester\node_modules\react-native\Libraries\Components\ScrollView\ScrollViewNativeComponent.js</code></li>
+<li><code>D:\rn72_0610\r\tester\node_modules\react-native\Libraries\Components\ScrollView\ScrollViewStickyHeader.js</code></li>
+</ul>
+<h3 id="fabric-层"><a class="heading-anchor" href="#fabric-%E5%B1%82" aria-label="链接到本节">#</a>Fabric 层</h3>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\components\scrollview\ScrollViewProps.cpp</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\components\scrollview\ScrollViewShadowNode.cpp</code><ul>
+<li>content bounding rect / State：17-31</li>
+<li>layout：53-57</li>
+<li>content origin offset：59-63</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\components\scrollview\ScrollViewState.h</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\componentregistry\componentNameByReactViewName.cpp</code></li>
+</ul>
+<h3 id="rnoh-挂载与命令路由"><a class="heading-anchor" href="#rnoh-%E6%8C%82%E8%BD%BD%E4%B8%8E%E5%91%BD%E4%BB%A4%E8%B7%AF%E7%94%B1" aria-label="链接到本节">#</a>RNOH 挂载与命令路由</h3>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\RNOHCorePackage.h</code><ul>
+<li>创建 <code>ScrollViewComponentInstance</code>：182-184</li>
+<li>注册 descriptor：220-221</li>
+<li><code>RCTScrollView</code> binder：239</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\SchedulerDelegate.cpp</code><ul>
+<li>command 路由：1149-1156</li>
+<li>JS Responder 路由：1168-1176</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\MountingManagerCAPI.cpp</code><ul>
+<li>command 到 ComponentInstance：146-163</li>
+<li>JS Responder 与祖先阻塞：165-183</li>
+<li>ShadowView 更新顺序：219-230</li>
+<li>mutation 处理：262-339</li>
+<li>finalize：341-379</li>
+</ul>
+</li>
+</ul>
+<h3 id="scrollview-native-控制层"><a class="heading-anchor" href="#scrollview-native-%E6%8E%A7%E5%88%B6%E5%B1%82" aria-label="链接到本节">#</a>ScrollView native 控制层</h3>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\ScrollViewComponentInstance.h</code><ul>
+<li>状态和核心字段：36-85</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\ScrollViewComponentInstance.cpp</code><ul>
+<li>touch 辅助监听与构造：20-57</li>
+<li>content size / props：132-271</li>
+<li>commands：273-289</li>
+<li>responder / interaction gate：291-347</li>
+<li>ArkUI 滚动回调：402-535</li>
+<li>friction：547-573</li>
+<li><code>scrollToEnd</code>：575-586</li>
+<li>snap：602-637</li>
+<li>finalize 与内部补偿：644-703</li>
+<li>throttle / boundary：763-854</li>
+<li>maintain visible：892-978</li>
+<li>RTL / offset：990-1008</li>
+<li>event payload / dispatch：1011-1084</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\ScrollView\VelocityTracker.h</code></li>
+</ul>
+<h3 id="arkui-节点封装"><a class="heading-anchor" href="#arkui-%E8%8A%82%E7%82%B9%E5%B0%81%E8%A3%85" aria-label="链接到本节">#</a>ArkUI 节点封装</h3>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\arkui\ScrollNode.h</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\arkui\ScrollNode.cpp</code><ul>
+<li>创建 <code>ARKUI_NODE_SCROLL</code> 与注册事件：15-30</li>
+<li>ArkUI event → delegate：38-69</li>
+<li>读取 offset：71-77</li>
+<li>interaction / friction / edge effect：146-188</li>
+<li>写入 <code>NODE_SCROLL_OFFSET</code>：190-201</li>
+<li>snap / paging：216-235</li>
+</ul>
+</li>
+</ul>
+<h3 id="上层列表与附属能力"><a class="heading-anchor" href="#%E4%B8%8A%E5%B1%82%E5%88%97%E8%A1%A8%E4%B8%8E%E9%99%84%E5%B1%9E%E8%83%BD%E5%8A%9B" aria-label="链接到本节">#</a>上层列表与附属能力</h3>
+<ul>
+<li><code>D:\rn72_0610\r\tester\node_modules\@react-native\virtualized-lists\Lists\VirtualizedList.js</code><ul>
+<li>默认渲染 ScrollView：1289-1324</li>
+<li>消费 scroll metrics：1689-1745</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\PullToRefreshViewComponentInstance.cpp</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\arkui\RefreshNode.cpp</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\core\EventEmitter.cpp</code></li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\third-party\rn\ReactCommon\react\renderer\core\EventDispatcher.cpp</code></li>
+</ul>
+<hr>
+<h2 id="16-最终心智模型"><a class="heading-anchor" href="#16-%E6%9C%80%E7%BB%88%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B" aria-label="链接到本节">#</a>16. 最终心智模型</h2>
+<p>看到一个滚动问题时，先问它属于哪条通道：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">配置没生效？
+    -&gt; JS props -&gt; Fabric Props -&gt; onPropsChanged/onFinalizeUpdates -&gt; NODE_SCROLL_*
+
+scrollTo 没生效？
+    -&gt; JS command -&gt; Scheduler -&gt; MountingManager -&gt; onCommandReceived -&gt; NODE_SCROLL_OFFSET
+
+手指滚不动？
+    -&gt; ArkUI 原始触摸 + EnableScrollInteraction + frame begin 闸门
+
+滚动了但回调不对？
+    -&gt; ArkUI scroll events -&gt; ComponentInstance 状态机/限流 -&gt; EventDispatcher -&gt; JS
+
+布局或内容变化后跳动？
+    -&gt; ShadowNode contentBoundingRect -&gt; ScrollViewState -&gt; native contentSize/offset 补偿</code></pre></div>
+<p>只要先把问题放进正确通道，再沿这一条链逐层检查，ScrollView 就不再是一团互相调用的代码，而是五条职责清楚、在 <code>ScrollViewComponentInstance</code> 汇合的控制流。</p>
+
+        </article>
+        <nav class="doc-pagination" aria-label="上一篇和下一篇">
+          <span></span>
+          <a href="%E8%A7%A6%E6%91%B8%E5%BA%8F%E5%88%97%E4%B8%8E%E7%82%B9%E5%87%BB%E6%BB%9A%E5%8A%A8%E5%85%B3%E7%B3%BB.html" class="doc-pagination__next"><small>下一篇</small><strong>触摸序列与点击、滚动的关系</strong></a>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#%E9%98%85%E8%AF%BB%E5%AF%BC%E8%88%AA" data-level="2">阅读导航</a>
+<a href="#0-%E5%85%88%E8%AE%B0%E4%BD%8F%E8%BF%99%E4%BA%94%E5%8F%A5%E8%AF%9D" data-level="2">0. 先记住这五句话</a>
+<a href="#1-%E4%B8%80%E5%BC%A0%E6%80%BB%E5%9B%BE-%E6%BB%9A%E5%8A%A8%E6%8E%A7%E5%88%B6%E6%9D%83%E6%80%8E%E6%A0%B7%E6%B5%81%E5%8A%A8" data-level="2">1. 一张总图：滚动控制权怎样流动</a>
+<a href="#2-%E5%BB%BA%E7%AB%8B%E6%AD%A3%E7%A1%AE%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B-%E4%B8%89%E7%A7%8D%E8%BE%93%E5%85%A5-%E4%B8%A4%E7%A7%8D%E8%BE%93%E5%87%BA" data-level="2">2. 建立正确心智模型：三种输入、两种输出</a>
+<a href="#2-1-%E5%A3%B0%E6%98%8E%E5%BC%8F%E5%B1%9E%E6%80%A7%E4%B8%8D%E6%98%AF%E5%91%BD%E4%BB%A4" data-level="3">2.1 声明式属性不是命令</a>
+<a href="#2-2-%E5%91%BD%E4%BB%A4%E4%B8%8D%E9%9C%80%E8%A6%81%E7%AD%89%E5%BE%85%E4%B8%8B%E4%B8%80%E6%AC%A1-render" data-level="3">2.2 命令不需要等待下一次 render</a>
+<a href="#2-3-%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8%E4%B8%8D%E7%BB%8F%E8%BF%87-js-%E9%80%90%E5%B8%A7%E8%AE%A1%E7%AE%97" data-level="3">2.3 手指滚动不经过 JS 逐帧计算</a>
+<a href="#2-4-state-%E4%B8%8D%E6%98%AF%E4%BA%8B%E4%BB%B6" data-level="3">2.4 State 不是事件</a>
+<a href="#3-%E4%B8%80%E4%B8%AA-scrollview-%E5%AE%9E%E9%99%85%E7%94%B1%E5%93%AA%E4%BA%9B%E5%AF%B9%E8%B1%A1%E7%BB%84%E6%88%90" data-level="2">3. 一个 ScrollView 实际由哪些对象组成</a>
+<a href="#3-1-%E5%90%8D%E7%A7%B0%E5%AF%B9%E5%BA%94" data-level="3">3.1 名称对应</a>
+<a href="#3-2-js-%E4%B8%8E-arkui-%E8%8A%82%E7%82%B9%E6%A0%91" data-level="3">3.2 JS 与 ArkUI 节点树</a>
+<a href="#4-%E9%A6%96%E6%AC%A1%E6%B8%B2%E6%9F%93%E4%B8%8E-props-%E6%9B%B4%E6%96%B0%E6%80%8E%E6%A0%B7%E7%94%9F%E6%95%88" data-level="2">4. 首次渲染与 props 更新怎样生效</a>
+<a href="#4-1-js-%E5%B1%82%E5%85%88%E5%81%9A%E4%B8%80%E6%AC%A1%E7%AD%96%E7%95%A5%E5%BD%92%E4%B8%80%E5%8C%96" data-level="3">4.1 JS 层先做一次策略归一化</a>
+<a href="#4-2-fabric-%E5%A6%82%E4%BD%95%E5%BE%97%E5%88%B0%E5%86%85%E5%AE%B9%E5%A4%A7%E5%B0%8F" data-level="3">4.2 Fabric 如何得到内容大小</a>
+<a href="#4-3-mounting-%E6%97%B6%E7%9A%84%E5%85%B3%E9%94%AE%E6%9B%B4%E6%96%B0%E9%A1%BA%E5%BA%8F" data-level="3">4.3 Mounting 时的关键更新顺序</a>
+<a href="#4-4-props-%E6%9C%80%E7%BB%88%E6%98%A0%E5%B0%84%E5%88%B0%E4%BB%80%E4%B9%88" data-level="3">4.4 props 最终映射到什么</a>
+<a href="#5-%E6%89%8B%E6%8C%87%E6%8B%96%E5%8A%A8-%E7%9C%9F%E6%AD%A3%E7%9A%84%E5%8E%9F%E7%94%9F%E6%BB%9A%E5%8A%A8%E6%B5%81%E7%A8%8B" data-level="2">5. 手指拖动：真正的原生滚动流程</a>
+<a href="#5-1-%E5%AE%8C%E6%95%B4%E6%97%B6%E5%BA%8F" data-level="3">5.1 完整时序</a>
+<a href="#5-2-%E4%B8%BA%E4%BB%80%E4%B9%88-scrollviewcomponentinstance-ontouchevent-%E4%B8%8D%E6%98%AF%E6%BB%9A%E5%8A%A8%E5%85%A5%E5%8F%A3" data-level="3">5.2 为什么 ScrollViewComponentInstance::onTouchEvent() 不是滚动入口</a>
+<a href="#5-3-onscrollframebegin-%E6%98%AF%E6%AF%8F%E5%B8%A7%E7%9A%84-%E9%97%B8%E9%97%A8" data-level="3">5.3 onScrollFrameBegin() 是每帧的“闸门”</a>
+<a href="#6-drag-fling-%E4%BA%8B%E4%BB%B6%E7%8A%B6%E6%80%81%E6%9C%BA" data-level="2">6. drag / fling 事件状态机</a>
+<a href="#6-1-%E4%B8%BA%E4%BB%80%E4%B9%88-onscrollstart-%E5%85%88%E8%AE%BE%E7%BD%AE%E6%88%90-fling" data-level="3">6.1 为什么 onScrollStart() 先设置成 FLING</a>
+<a href="#6-2-%E5%B8%B8%E8%A7%81%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8%E4%BA%8B%E4%BB%B6%E9%A1%BA%E5%BA%8F" data-level="3">6.2 常见手指滚动事件顺序</a>
+<a href="#7-onscroll-%E6%80%8E%E6%A0%B7%E4%BB%8E-arkui-%E5%9B%9E%E5%88%B0-js" data-level="2">7. onScroll 怎样从 ArkUI 回到 JS</a>
+<a href="#7-1-native-%E5%9B%9E%E8%B0%83%E9%93%BE" data-level="3">7.1 native 回调链</a>
+<a href="#7-2-scrollviewcomponentinstance-onscroll-%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88" data-level="3">7.2 ScrollViewComponentInstance::onScroll() 做了什么</a>
+<a href="#7-3-js-scroll-%E4%BA%8B%E4%BB%B6%E7%9A%84%E4%B8%89%E4%B8%AA%E9%99%90%E6%B5%81%E5%B1%82%E6%AC%A1" data-level="3">7.3 JS scroll 事件的三个限流层次</a>
+<a href="#7-4-%E4%B8%BA%E4%BB%80%E4%B9%88-native-animated-%E4%B8%8E-js-onscroll-%E9%A2%91%E7%8E%87%E4%B8%8D%E5%90%8C" data-level="3">7.4 为什么 Native Animated 与 JS onScroll 频率不同</a>
+<a href="#7-5-js-%E4%BA%8B%E4%BB%B6-payload" data-level="3">7.5 JS 事件 payload</a>
+<a href="#8-scrollto-%E5%92%8C-scrolltoend-%E6%80%8E%E6%A0%B7%E7%94%9F%E6%95%88" data-level="2">8. scrollTo() 和 scrollToEnd() 怎样生效</a>
+<a href="#8-1-scrollto-%E5%AE%8C%E6%95%B4%E5%91%BD%E4%BB%A4%E9%93%BE" data-level="3">8.1 scrollTo() 完整命令链</a>
+<a href="#8-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E4%BF%9D%E5%AD%98-mtargetoffsetofscrolltocommand" data-level="3">8.2 为什么要保存 mtargetOffsetOfScrollToCommand</a>
+<a href="#8-3-scrolltoend" data-level="3">8.3 scrollToEnd()</a>
+<a href="#8-4-%E8%BF%98%E6%9C%89%E5%93%AA%E4%BA%9B%E9%80%BB%E8%BE%91%E4%BC%9A%E5%86%85%E9%83%A8%E8%B0%83%E7%94%A8-scrollto" data-level="3">8.4 还有哪些逻辑会内部调用 scrollTo</a>
+<a href="#9-%E6%91%A9%E6%93%A6-%E6%83%AF%E6%80%A7-%E5%9B%9E%E5%BC%B9-%E5%88%86%E9%A1%B5%E5%92%8C%E5%90%B8%E9%99%84" data-level="2">9. 摩擦、惯性、回弹、分页和吸附</a>
+<a href="#9-1-decelerationrate-arkui-friction" data-level="3">9.1 decelerationRate → ArkUI friction</a>
+<a href="#9-2-flingspeedlimit" data-level="3">9.2 flingSpeedLimit</a>
+<a href="#9-3-bounces-%E4%B8%8E-overscrollmode" data-level="3">9.3 bounces 与 overScrollMode</a>
+<a href="#9-4-paging-%E4%B8%8E-snap" data-level="3">9.4 paging 与 snap</a>
+<a href="#10-%E8%B0%81%E5%8F%AF%E4%BB%A5%E7%A6%81%E6%AD%A2-scrollview-%E6%BB%9A%E5%8A%A8" data-level="2">10. 谁可以禁止 ScrollView 滚动</a>
+<a href="#10-1-js-responder" data-level="3">10.1 JS Responder</a>
+<a href="#10-2-nested-scroll" data-level="3">10.2 nested scroll</a>
+<a href="#10-3-%E7%AC%AC%E4%B8%89%E6%96%B9%E6%89%8B%E5%8A%BF%E5%BA%93%E6%80%8E%E6%A0%B7%E6%8F%92%E5%85%A5" data-level="3">10.3 第三方手势库怎样插入</a>
+<a href="#11-%E5%86%85%E5%AE%B9%E5%8F%98%E5%8C%96-%E5%88%97%E8%A1%A8-stickyheader-%E4%B8%8B%E6%8B%89%E5%88%B7%E6%96%B0%E5%92%8C%E9%94%AE%E7%9B%98" data-level="2">11. 内容变化、列表、StickyHeader、下拉刷新和键盘</a>
+<a href="#11-1-%E5%86%85%E5%AE%B9%E5%B0%BA%E5%AF%B8%E5%8F%98%E5%8C%96" data-level="3">11.1 内容尺寸变化</a>
+<a href="#11-2-maintainvisiblecontentposition" data-level="3">11.2 maintainVisibleContentPosition</a>
+<a href="#11-3-flatlist-virtualizedlist-%E4%B8%8E-scrollview" data-level="3">11.3 FlatList / VirtualizedList 与 ScrollView</a>
+<a href="#11-4-removeclippedsubviews" data-level="3">11.4 removeClippedSubviews</a>
+<a href="#11-5-stickyheader" data-level="3">11.5 StickyHeader</a>
+<a href="#11-6-refreshcontrol" data-level="3">11.6 RefreshControl</a>
+<a href="#11-7-%E9%94%AE%E7%9B%98%E9%81%BF%E8%AE%A9" data-level="3">11.7 键盘避让</a>
+<a href="#11-8-rtl" data-level="3">11.8 RTL</a>
+<a href="#12-%E5%90%84%E5%B1%82%E5%88%B0%E5%BA%95%E8%B4%9F%E8%B4%A3%E4%BB%80%E4%B9%88" data-level="2">12. 各层到底负责什么</a>
+<a href="#13-%E7%94%A8%E4%B8%80%E4%B8%AA%E4%BE%8B%E5%AD%90%E4%B8%B2%E5%AE%8C%E6%95%B4%E6%B5%81%E7%A8%8B" data-level="2">13. 用一个例子串完整流程</a>
+<a href="#13-1-%E9%A6%96%E6%AC%A1-render" data-level="3">13.1 首次 render</a>
+<a href="#13-2-%E7%94%A8%E6%88%B7%E6%89%8B%E6%8C%87%E6%BB%9A%E5%8A%A8" data-level="3">13.2 用户手指滚动</a>
+<a href="#13-3-%E4%B8%9A%E5%8A%A1%E8%B0%83%E7%94%A8-scrollto" data-level="3">13.3 业务调用 scrollTo</a>
+<a href="#14-%E6%8E%92%E6%9F%A5%E9%97%AE%E9%A2%98%E6%97%B6%E4%BB%8E%E5%93%AA%E9%87%8C%E4%B8%8B%E6%89%8B" data-level="2">14. 排查问题时从哪里下手</a>
+<a href="#14-1-%E6%8E%A8%E8%8D%90%E7%9A%84%E6%9C%80%E5%B0%8F%E6%97%A5%E5%BF%97%E9%A1%BA%E5%BA%8F" data-level="3">14.1 推荐的最小日志顺序</a>
+<a href="#15-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" data-level="2">15. 关键源码索引</a>
+<a href="#js-%E5%B1%82" data-level="3">JS 层</a>
+<a href="#fabric-%E5%B1%82" data-level="3">Fabric 层</a>
+<a href="#rnoh-%E6%8C%82%E8%BD%BD%E4%B8%8E%E5%91%BD%E4%BB%A4%E8%B7%AF%E7%94%B1" data-level="3">RNOH 挂载与命令路由</a>
+<a href="#scrollview-native-%E6%8E%A7%E5%88%B6%E5%B1%82" data-level="3">ScrollView native 控制层</a>
+<a href="#arkui-%E8%8A%82%E7%82%B9%E5%B0%81%E8%A3%85" data-level="3">ArkUI 节点封装</a>
+<a href="#%E4%B8%8A%E5%B1%82%E5%88%97%E8%A1%A8%E4%B8%8E%E9%99%84%E5%B1%9E%E8%83%BD%E5%8A%9B" data-level="3">上层列表与附属能力</a>
+<a href="#16-%E6%9C%80%E7%BB%88%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B" data-level="2">16. 最终心智模型</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../../assets/vendor/mermaid.min.js"></script>
+    <script src="../../../../assets/site.js"></script>
+  </body>
+</html>

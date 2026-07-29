@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 DOWN、MOVE、UP、CANCEL 的严格终止关系，以及点击为什么可能被 ScrollView 滚动接管。">
+    <title>触摸序列与点击、滚动的关系 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="../../index.html" aria-current="page">RNOH</a>
+          <a href="../../../cpp/index.html">C++</a>
+          <a href="../../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="ScrollView 专题">
+        <div>
+          <p class="side-label">ScrollView 专题</p>
+          <nav class="side-nav">
+            <a href="index.html">专题首页</a>
+            <a href="rn72%E6%BB%9A%E5%8A%A8%E7%BB%84%E4%BB%B6%E9%80%BB%E8%BE%91.html">完整控制流程</a>
+<a href="%E8%A7%A6%E6%91%B8%E5%BA%8F%E5%88%97%E4%B8%8E%E7%82%B9%E5%87%BB%E6%BB%9A%E5%8A%A8%E5%85%B3%E7%B3%BB.html" aria-current="page">触摸序列</a>
+<a href="onPropsChanged%E5%B1%9E%E6%80%A7%E6%9B%B4%E6%96%B0%E8%B0%83%E7%94%A8%E9%93%BE.html">Props 更新</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="../index.html">组件</a><span aria-hidden="true">/</span>
+          <a href="index.html">ScrollView</a><span aria-hidden="true">/</span>
+          <span>触摸序列</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>触摸专题</strong> · 基于 RN 0.72 鸿蒙当前工作树源码</span>
+          <a href="index.html">返回专题目录</a>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="触摸序列与点击-滚动的关系">触摸序列与点击、滚动的关系</h1>
+<p><a href="rn72滚动组件逻辑.html">返回《RN 0.72 鸿蒙 ScrollView 完整控制流程》</a></p>
+<blockquote>
+<p>本文专门解释 DOWN、MOVE、UP、CANCEL 的含义，以及一次触摸怎样被识别为点击或 ScrollView 滚动。内容基于当前 <code>D:\rn72_0610\r</code> 工作树源码。</p>
+</blockquote>
+<h2 id="1-最重要的结论"><a class="heading-anchor" href="#1-%E6%9C%80%E9%87%8D%E8%A6%81%E7%9A%84%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>1. 最重要的结论</h2>
+<p>一次触摸的严格配对不是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN -&gt; UP</code></pre></div>
+<p>而是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN -&gt; 0~N 个 MOVE -&gt; UP 或 CANCEL</code></pre></div>
+<p><code>UP</code> 和 <code>CANCEL</code> 都是触摸序列的终点：</p>
+<ul>
+<li><code>UP</code>：手指正常离开屏幕；</li>
+<li><code>CANCEL</code>：原目标失去这次触摸的处理权。</li>
+</ul>
+<p>因此不能假设“每一个 DOWN 后面一定是 UP”，应该把完整性判断写成：</p>
+<blockquote>
+<p>每个正常开始的触摸序列，最终应以 UP 或 CANCEL 结束。</p>
+</blockquote>
+<div class="mermaid-wrap"><div class="mermaid">stateDiagram-v2
+    [*] --&gt; DOWN: &quot;手指接触屏幕&quot;
+    DOWN --&gt; MOVE: &quot;坐标发生变化&quot;
+    MOVE --&gt; MOVE: &quot;继续移动&quot;
+    DOWN --&gt; UP: &quot;几乎没有移动，正常抬手&quot;
+    MOVE --&gt; UP: &quot;正常抬手&quot;
+    DOWN --&gt; CANCEL: &quot;目标失去处理权&quot;
+    MOVE --&gt; CANCEL: &quot;滚动或其他手势接管&quot;
+    UP --&gt; [*]
+    CANCEL --&gt; [*]</div><pre class="mermaid-fallback">stateDiagram-v2
+    [*] --&gt; DOWN: &quot;手指接触屏幕&quot;
+    DOWN --&gt; MOVE: &quot;坐标发生变化&quot;
+    MOVE --&gt; MOVE: &quot;继续移动&quot;
+    DOWN --&gt; UP: &quot;几乎没有移动，正常抬手&quot;
+    MOVE --&gt; UP: &quot;正常抬手&quot;
+    DOWN --&gt; CANCEL: &quot;目标失去处理权&quot;
+    MOVE --&gt; CANCEL: &quot;滚动或其他手势接管&quot;
+    UP --&gt; [*]
+    CANCEL --&gt; [*]</pre></div>
+<hr>
+<h2 id="2-四种-action-分别表示什么"><a class="heading-anchor" href="#2-%E5%9B%9B%E7%A7%8D-action-%E5%88%86%E5%88%AB%E8%A1%A8%E7%A4%BA%E4%BB%80%E4%B9%88" aria-label="链接到本节">#</a>2. 四种 action 分别表示什么</h2>
+<h3 id="2-1-down-一根手指开始接触屏幕"><a class="heading-anchor" href="#2-1-down-%E4%B8%80%E6%A0%B9%E6%89%8B%E6%8C%87%E5%BC%80%E5%A7%8B%E6%8E%A5%E8%A7%A6%E5%B1%8F%E5%B9%95" aria-label="链接到本节">#</a>2.1 DOWN：一根手指开始接触屏幕</h3>
+<p>DOWN 到来时，框架通常会：</p>
+<ol>
+<li>取得 touch/pointer id；</li>
+<li>根据坐标执行 hit test；</li>
+<li>找到最初的触摸目标；</li>
+<li>保存 <code>pointerId -&gt; TouchTarget</code>；</li>
+<li>启动点击、长按、滚动等手势识别；</li>
+<li>但此时还不能确定用户最终想点击还是滚动。</li>
+</ol>
+<p>当前 RNOH 的实际入口在：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\
+RNOH\arkui\TouchEventDispatcher.cpp</code></pre></div>
+<p>DOWN 时调用 <code>findTargetForTouchPoint()</code>，然后由 <code>registerTargetForTouch()</code> 保存目标。</p>
+<p>这意味着目标不是每个 MOVE 都重新 hit test。正常情况下，后续事件会继续根据同一个 touch id 找回 DOWN 时登记的目标。</p>
+<h3 id="2-2-move-手指仍按着-位置发生变化"><a class="heading-anchor" href="#2-2-move-%E6%89%8B%E6%8C%87%E4%BB%8D%E6%8C%89%E7%9D%80-%E4%BD%8D%E7%BD%AE%E5%8F%91%E7%94%9F%E5%8F%98%E5%8C%96" aria-label="链接到本节">#</a>2.2 MOVE：手指仍按着，位置发生变化</h3>
+<p>MOVE 可以出现零次、一次或很多次。</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN -&gt; UP</code></pre></div>
+<p>通常是几乎没有位移的点击候选。</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN -&gt; MOVE -&gt; MOVE -&gt; MOVE -&gt; UP</code></pre></div>
+<p>既可能是轻微晃动后的点击，也可能是滚动。关键在于：</p>
+<ul>
+<li>位移是否超过 touch slop；</li>
+<li>ScrollView 的滚动识别器是否开始处理；</li>
+<li>子组件或 ScrollView 谁取得 responder；</li>
+<li>是否存在 RNGH 等其他手势竞争。</li>
+</ul>
+<h3 id="2-3-up-手指正常离开屏幕"><a class="heading-anchor" href="#2-3-up-%E6%89%8B%E6%8C%87%E6%AD%A3%E5%B8%B8%E7%A6%BB%E5%BC%80%E5%B1%8F%E5%B9%95" aria-label="链接到本节">#</a>2.3 UP：手指正常离开屏幕</h3>
+<p>UP 只说明：</p>
+<blockquote>
+<p>这根手指已经正常离开屏幕。</p>
+</blockquote>
+<p>UP 不等于：</p>
+<ul>
+<li>一定产生 <code>onPress</code>；</li>
+<li>ScrollView 已经停止移动；</li>
+<li>一定没有后续 fling；</li>
+<li>所有组件都会收到同一个 UP 回调。</li>
+</ul>
+<p>当前 <code>TouchEventDispatcher</code> 在 UP 后会从 <code>m_touchTargetByTouchId</code> 中删除该 touch id，结束目标跟踪。</p>
+<h3 id="2-4-cancel-这次触摸被取消"><a class="heading-anchor" href="#2-4-cancel-%E8%BF%99%E6%AC%A1%E8%A7%A6%E6%91%B8%E8%A2%AB%E5%8F%96%E6%B6%88" aria-label="链接到本节">#</a>2.4 CANCEL：这次触摸被取消</h3>
+<p>CANCEL 表示触摸序列没有走到正常点击释放，而是原目标被终止。</p>
+<p>常见情况包括：</p>
+<ul>
+<li>父 ScrollView 开始滚动；</li>
+<li>其他手势识别器获胜；</li>
+<li>JS Responder 转移；</li>
+<li>系统中断触摸；</li>
+<li>页面或组件被销毁；</li>
+<li>原 TouchTarget 失效；</li>
+<li>框架主动调用 <code>cancelActiveTouches()</code>。</li>
+</ul>
+<p>CANCEL 后，这次触摸不能继续产生正常点击。</p>
+<hr>
+<h2 id="3-down-和-up-成对出现-为什么仍不一定是点击"><a class="heading-anchor" href="#3-down-%E5%92%8C-up-%E6%88%90%E5%AF%B9%E5%87%BA%E7%8E%B0-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BB%8D%E4%B8%8D%E4%B8%80%E5%AE%9A%E6%98%AF%E7%82%B9%E5%87%BB" aria-label="链接到本节">#</a>3. DOWN 和 UP 成对出现，为什么仍不一定是点击</h2>
+<p>DOWN、MOVE、UP 是原始触摸层的事件；<code>onPress</code> 是 Pressability/Responder 层识别出来的高级语义。</p>
+<p>一次 <code>onPress</code> 通常还要求：</p>
+<ul>
+<li>DOWN 命中该组件；</li>
+<li>组件成功成为 responder；</li>
+<li>没有收到 CANCEL；</li>
+<li>没有被 ScrollView 或其他手势接管；</li>
+<li>抬手时仍处于有效 PressRect；</li>
+<li>长按策略没有取消普通 press；</li>
+<li>组件在序列结束前没有卸载或禁用。</li>
+</ul>
+<p>RN <code>Pressability</code> 只有在：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">当前仍是有效 press-in 状态
++
+收到 RESPONDER_RELEASE</code></pre></div>
+<p>时才调用 <code>onPress</code>。</p>
+<p>因此：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN + UP
+不一定产生 onPress</code></pre></div>
+<p>反过来，一个正常产生的 <code>onPress</code> 通常表示相应 press 手势走到了有效 release，但这不代表任意一个自行安装的 touch listener 都一定观察到了完整的 DOWN/UP。</p>
+<hr>
+<h2 id="4-scrollview-内点击子组件时的两条分支"><a class="heading-anchor" href="#4-scrollview-%E5%86%85%E7%82%B9%E5%87%BB%E5%AD%90%E7%BB%84%E4%BB%B6%E6%97%B6%E7%9A%84%E4%B8%A4%E6%9D%A1%E5%88%86%E6%94%AF" aria-label="链接到本节">#</a>4. ScrollView 内点击子组件时的两条分支</h2>
+<p>假设 ScrollView 中有一个 Pressable。</p>
+<h3 id="4-1-用户真的想点击"><a class="heading-anchor" href="#4-1-%E7%94%A8%E6%88%B7%E7%9C%9F%E7%9A%84%E6%83%B3%E7%82%B9%E5%87%BB" aria-label="链接到本节">#</a>4.1 用户真的想点击</h3>
+<div class="mermaid-wrap"><div class="mermaid">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant Dispatcher as &quot;TouchEventDispatcher&quot;
+    participant Button as &quot;Pressable&quot;
+    participant Scroll as &quot;ScrollView&quot;
+
+    Finger-&gt;&gt;Dispatcher: &quot;DOWN&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchStart，登记为 TouchTarget&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;少量 MOVE 或没有 MOVE&quot;
+    Dispatcher-&gt;&gt;Scroll: &quot;位移未达到滚动条件&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;UP&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchEnd&quot;
+    Button-&gt;&gt;Button: &quot;RESPONDER_RELEASE&quot;
+    Button-&gt;&gt;Button: &quot;满足 press 条件，触发 onPress&quot;</div><pre class="mermaid-fallback">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant Dispatcher as &quot;TouchEventDispatcher&quot;
+    participant Button as &quot;Pressable&quot;
+    participant Scroll as &quot;ScrollView&quot;
+
+    Finger-&gt;&gt;Dispatcher: &quot;DOWN&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchStart，登记为 TouchTarget&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;少量 MOVE 或没有 MOVE&quot;
+    Dispatcher-&gt;&gt;Scroll: &quot;位移未达到滚动条件&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;UP&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchEnd&quot;
+    Button-&gt;&gt;Button: &quot;RESPONDER_RELEASE&quot;
+    Button-&gt;&gt;Button: &quot;满足 press 条件，触发 onPress&quot;</pre></div>
+<p>对应过程：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN 命中按钮
+-&gt; 没有超过滚动阈值
+-&gt; ScrollView 没有接管
+-&gt; UP 正常结束
+-&gt; Pressability 触发 onPress</code></pre></div>
+<h3 id="4-2-用户从按钮位置开始滚动"><a class="heading-anchor" href="#4-2-%E7%94%A8%E6%88%B7%E4%BB%8E%E6%8C%89%E9%92%AE%E4%BD%8D%E7%BD%AE%E5%BC%80%E5%A7%8B%E6%BB%9A%E5%8A%A8" aria-label="链接到本节">#</a>4.2 用户从按钮位置开始滚动</h3>
+<div class="mermaid-wrap"><div class="mermaid">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant Dispatcher as &quot;TouchEventDispatcher&quot;
+    participant Button as &quot;Pressable&quot;
+    participant Scroll as &quot;ScrollView / ArkUI Scroll&quot;
+
+    Finger-&gt;&gt;Dispatcher: &quot;DOWN&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchStart，暂时成为 TouchTarget&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;MOVE 超过滚动阈值&quot;
+    Scroll-&gt;&gt;Scroll: &quot;进入 SCROLL，开始原生滚动&quot;
+    Dispatcher-&gt;&gt;Dispatcher: &quot;发现祖先正在 handling touches&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchCancel&quot;
+    Button-&gt;&gt;Button: &quot;取消 press，不触发 onPress&quot;
+    Finger-&gt;&gt;Scroll: &quot;后续 MOVE&quot;
+    Finger-&gt;&gt;Scroll: &quot;UP&quot;
+    Scroll-&gt;&gt;Scroll: &quot;结束拖动，可能继续 FLING&quot;</div><pre class="mermaid-fallback">sequenceDiagram
+    participant Finger as &quot;用户手指&quot;
+    participant Dispatcher as &quot;TouchEventDispatcher&quot;
+    participant Button as &quot;Pressable&quot;
+    participant Scroll as &quot;ScrollView / ArkUI Scroll&quot;
+
+    Finger-&gt;&gt;Dispatcher: &quot;DOWN&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchStart，暂时成为 TouchTarget&quot;
+    Finger-&gt;&gt;Dispatcher: &quot;MOVE 超过滚动阈值&quot;
+    Scroll-&gt;&gt;Scroll: &quot;进入 SCROLL，开始原生滚动&quot;
+    Dispatcher-&gt;&gt;Dispatcher: &quot;发现祖先正在 handling touches&quot;
+    Dispatcher-&gt;&gt;Button: &quot;onTouchCancel&quot;
+    Button-&gt;&gt;Button: &quot;取消 press，不触发 onPress&quot;
+    Finger-&gt;&gt;Scroll: &quot;后续 MOVE&quot;
+    Finger-&gt;&gt;Scroll: &quot;UP&quot;
+    Scroll-&gt;&gt;Scroll: &quot;结束拖动，可能继续 FLING&quot;</pre></div>
+<p>当前 RNOH 在处理非 DOWN 事件时，会检查目标的祖先是否已经开始 handling touches：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">isAncestorHandlingTouches(...)</code></pre></div>
+<p>如果父 ScrollView 已处于 <code>SCROLL</code> 或 <code>FLING</code>：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">cancelPreviousTouchEvent()
+-&gt; 给原子组件发送 touchCancel
+-&gt; 删除原 touch target</code></pre></div>
+<p>这是“按在按钮上开始滑动列表时，不应误触按钮”的关键机制。</p>
+<hr>
+<h2 id="5-某个组件一定能看到-down-和终止事件吗"><a class="heading-anchor" href="#5-%E6%9F%90%E4%B8%AA%E7%BB%84%E4%BB%B6%E4%B8%80%E5%AE%9A%E8%83%BD%E7%9C%8B%E5%88%B0-down-%E5%92%8C%E7%BB%88%E6%AD%A2%E4%BA%8B%E4%BB%B6%E5%90%97" aria-label="链接到本节">#</a>5. 某个组件一定能看到 DOWN 和终止事件吗</h2>
+<p>框架会尽量保证一个 touch id 从 DOWN 到 UP/CANCEL 都跟随同一个初始目标，但对某一个具体监听器仍不能做绝对假设。</p>
+<p>可能只观察到 DOWN、看不到 UP 的原因包括：</p>
+<ul>
+<li>实际收到的是 CANCEL，但日志没有记录 CANCEL；</li>
+<li>TouchTarget 在序列中途被删除；</li>
+<li>组件被卸载；</li>
+<li>listener 中途解绑；</li>
+<li>父组件接管后，事件改走取消路径；</li>
+<li>应用或页面生命周期发生中断；</li>
+<li>代码分别在不同组件上记录 DOWN 和 UP。</li>
+</ul>
+<p>当前 <code>TouchEventDispatcher</code> 的几个关键保护是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">DOWN
+-&gt; 保存 m_touchTargetByTouchId
+
+MOVE / UP / CANCEL
+-&gt; 按 touch id 查找原目标
+
+UP / CANCEL
+-&gt; 删除目标映射
+
+cancelActiveTouches()
+-&gt; 对仍然活跃的 touches 主动发送 CANCEL</code></pre></div>
+<p>所以日志排查时必须同时打印：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">action
+pointerId
+target tag
+DOWN / MOVE / UP / CANCEL</code></pre></div>
+<p>只打印 DOWN 和 UP，无法判断触摸是丢失了，还是正常进入了 CANCEL 分支。</p>
+<hr>
+<h2 id="6-多指触摸时怎样理解-成对"><a class="heading-anchor" href="#6-%E5%A4%9A%E6%8C%87%E8%A7%A6%E6%91%B8%E6%97%B6%E6%80%8E%E6%A0%B7%E7%90%86%E8%A7%A3-%E6%88%90%E5%AF%B9" aria-label="链接到本节">#</a>6. 多指触摸时怎样理解“成对”</h2>
+<p>成对关系应以 <code>pointerId/touchId</code> 为单位，而不是只看全局 action 名字。</p>
+<p>例如两根手指：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">touchId=1 DOWN
+touchId=2 DOWN
+touchId=1 MOVE
+touchId=2 MOVE
+touchId=1 UP
+touchId=2 UP</code></pre></div>
+<p>也可能是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">touchId=1 DOWN
+touchId=2 DOWN
+系统或手势竞争发生变化
+touchId=1 CANCEL
+touchId=2 CANCEL</code></pre></div>
+<p>RN 事件中的几个集合含义：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>touches</code></td>
+<td>当前仍在屏幕上的所有 touch</td>
+</tr>
+<tr>
+<td><code>changedTouches</code></td>
+<td>本次 action 发生变化的 touch</td>
+</tr>
+<tr>
+<td><code>targetTouches</code></td>
+<td>当前仍属于同一目标的 touch</td>
+</tr>
+</tbody></table>
+<p>UP 时，当前 touch 会从 <code>touches</code> 中删除；CANCEL 时也会清理对应的 target 映射。</p>
+<hr>
+<h2 id="7-scrollview-收到-up-为什么内容还会继续移动"><a class="heading-anchor" href="#7-scrollview-%E6%94%B6%E5%88%B0-up-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%86%85%E5%AE%B9%E8%BF%98%E4%BC%9A%E7%BB%A7%E7%BB%AD%E7%A7%BB%E5%8A%A8" aria-label="链接到本节">#</a>7. ScrollView 收到 UP，为什么内容还会继续移动</h2>
+<p>触摸生命周期和滚动动画生命周期不是一回事。</p>
+<div class="mermaid-wrap"><div class="mermaid">flowchart LR
+    Down[&quot;DOWN&quot;]
+    Move[&quot;MOVE：手指拖动&quot;]
+    Up[&quot;UP：手指离开&quot;]
+    Fling[&quot;FLING：ArkUI 惯性滚动&quot;]
+    Stop[&quot;onScrollStop&quot;]
+
+    Down --&gt; Move
+    Move --&gt; Up
+    Up --&gt;|&quot;有剩余速度&quot;| Fling
+    Up --&gt;|&quot;没有惯性&quot;| Stop
+    Fling --&gt; Stop</div><pre class="mermaid-fallback">flowchart LR
+    Down[&quot;DOWN&quot;]
+    Move[&quot;MOVE：手指拖动&quot;]
+    Up[&quot;UP：手指离开&quot;]
+    Fling[&quot;FLING：ArkUI 惯性滚动&quot;]
+    Stop[&quot;onScrollStop&quot;]
+
+    Down --&gt; Move
+    Move --&gt; Up
+    Up --&gt;|&quot;有剩余速度&quot;| Fling
+    Up --&gt;|&quot;没有惯性&quot;| Stop
+    Fling --&gt; Stop</pre></div>
+<p>UP 之后可能继续发生：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">scrollEndDrag
+-&gt; momentumScrollBegin
+-&gt; 多个 onScroll
+-&gt; momentumScrollEnd</code></pre></div>
+<p>所以：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">UP = 手指结束
+onScrollStop = 内容运动结束</code></pre></div>
+<p>二者不能互换。</p>
+<hr>
+<h2 id="8-当前-scrollview-为什么只观察-up"><a class="heading-anchor" href="#8-%E5%BD%93%E5%89%8D-scrollview-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8F%AA%E8%A7%82%E5%AF%9F-up" aria-label="链接到本节">#</a>8. 当前 ScrollView 为什么只观察 UP</h2>
+<p>当前代码位于：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\
+RNOHCorePackage\ComponentInstances\ScrollViewComponentInstance.cpp</code></pre></div>
+<p>核心逻辑：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">void onTouchEvent(ArkUI_UIInputEvent* event) override {
+  auto action = OH_ArkUI_UIInputEvent_GetAction(event);
+  if (action == UI_TOUCH_EVENT_ACTION_UP) {
+    m_scrollViewComponentInstance-&gt;onTouchEventActionUp();
+  }
+}</code></pre></div>
+<p>UP 最终只设置：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">m_isPointerLikelyUp = true;</code></pre></div>
+<p>其用途不是驱动 offset，而是帮助区分：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">手指仍按着时的 SCROLL
+和
+手指已经抬起后的 fling / overscroll bounce</code></pre></div>
+<p>ArkUI 在部分回弹阶段可能仍把 frame state 报成 <code>SCROLL</code>。RNOH 根据：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">m_isPointerLikelyUp
++ isOutOfBound(offset)
++ arkUIScrollState == SCROLL</code></pre></div>
+<p>把这一帧按 <code>FLING</code> 处理，以符合 RN momentum 事件语义。</p>
+<p>因此当前 ScrollView 局部 touch handler 的职责是：</p>
+<table>
+<thead>
+<tr>
+<th>action</th>
+<th>当前处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DOWN</td>
+<td>不处理</td>
+</tr>
+<tr>
+<td>MOVE</td>
+<td>不处理，不用它计算滚动 offset</td>
+</tr>
+<tr>
+<td>UP</td>
+<td>标记手指大概率已抬起</td>
+</tr>
+<tr>
+<td>CANCEL</td>
+<td>当前局部 handler 未处理</td>
+</tr>
+</tbody></table>
+<p>真正的手指拖动、速度、惯性和回弹仍由 <code>ARKUI_NODE_SCROLL</code> 完成。</p>
+<hr>
+<h2 id="9-三个概念不要混淆"><a class="heading-anchor" href="#9-%E4%B8%89%E4%B8%AA%E6%A6%82%E5%BF%B5%E4%B8%8D%E8%A6%81%E6%B7%B7%E6%B7%86" aria-label="链接到本节">#</a>9. 三个概念不要混淆</h2>
+<h3 id="原始触摸结束"><a class="heading-anchor" href="#%E5%8E%9F%E5%A7%8B%E8%A7%A6%E6%91%B8%E7%BB%93%E6%9D%9F" aria-label="链接到本节">#</a>原始触摸结束</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">UP 或 CANCEL</code></pre></div>
+<h3 id="点击手势成功"><a class="heading-anchor" href="#%E7%82%B9%E5%87%BB%E6%89%8B%E5%8A%BF%E6%88%90%E5%8A%9F" aria-label="链接到本节">#</a>点击手势成功</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">有效 DOWN
+-&gt; 没有被取消
+-&gt; 有效 RESPONDER_RELEASE
+-&gt; onPress</code></pre></div>
+<h3 id="scrollview-内容停止运动"><a class="heading-anchor" href="#scrollview-%E5%86%85%E5%AE%B9%E5%81%9C%E6%AD%A2%E8%BF%90%E5%8A%A8" aria-label="链接到本节">#</a>ScrollView 内容停止运动</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ArkUI ON_SCROLL_STOP
+-&gt; RNOH onScrollStop()
+-&gt; scrollEndDrag 或 momentumScrollEnd</code></pre></div>
+<p>它们可能发生在不同时间。</p>
+<hr>
+<h2 id="10-最终记忆图"><a class="heading-anchor" href="#10-%E6%9C%80%E7%BB%88%E8%AE%B0%E5%BF%86%E5%9B%BE" aria-label="链接到本节">#</a>10. 最终记忆图</h2>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">普通点击：
+DOWN -&gt; 少量 MOVE -&gt; UP -&gt; 可能 onPress
+
+开始滚动：
+DOWN -&gt; MOVE 超过阈值
+     -&gt; 子组件 CANCEL
+     -&gt; ScrollView SCROLL
+     -&gt; UP
+     -&gt; 可能继续 FLING
+     -&gt; onScrollStop
+
+其他中断：
+DOWN -&gt; CANCEL</code></pre></div>
+<p>最简洁的判断方式是：</p>
+<blockquote>
+<p>DOWN 只表示“触摸开始”；UP 表示“手指正常离开”；CANCEL 表示“原目标失去处理权”；<code>onPress</code> 表示“点击识别成功”；<code>onScrollStop</code> 才表示“内容停止运动”。</p>
+</blockquote>
+<hr>
+<h2 id="11-关键源码索引"><a class="heading-anchor" href="#11-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" aria-label="链接到本节">#</a>11. 关键源码索引</h2>
+<ul>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\arkui\TouchEvent.h</code><ul>
+<li>ArkTS touch action 转换为 DOWN / UP / MOVE / CANCEL：63-73</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOH\arkui\TouchEventDispatcher.cpp</code><ul>
+<li>DOWN hit test 和目标登记：157-170</li>
+<li>祖先开始处理后取消原目标：171-181</li>
+<li>UP 更新 active touches：234-247</li>
+<li>UP / CANCEL 清除 target 映射：325-351</li>
+<li>action 到 RN touch event：384-403</li>
+<li>主动取消全部 active touches：407-410</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\react-native-harmony\Libraries\Components\ScrollView\ScrollView.harmony.js</code><ul>
+<li><code>onTouchEnd</code>：1614-1637</li>
+<li><code>onTouchCancel</code>：1644-1647</li>
+<li><code>onTouchStart</code>：1660-1663</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\node_modules\react-native\Libraries\Pressability\Pressability.js</code><ul>
+<li>responder release / terminate：530-536</li>
+<li><code>onPress</code> 的 release 条件：748-765</li>
+</ul>
+</li>
+<li><code>D:\rn72_0610\r\tester\harmony\react_native_openharmony\src\main\cpp\RNOHCorePackage\ComponentInstances\ScrollViewComponentInstance.cpp</code><ul>
+<li>ScrollView 局部 touch handler：20-45</li>
+<li>scroll frame 状态转换：473-520</li>
+</ul>
+</li>
+</ul>
+<p><a href="rn72滚动组件逻辑.html">返回《RN 0.72 鸿蒙 ScrollView 完整控制流程》</a></p>
+
+        </article>
+        <nav class="doc-pagination" aria-label="上一篇和下一篇">
+          <a href="rn72%E6%BB%9A%E5%8A%A8%E7%BB%84%E4%BB%B6%E9%80%BB%E8%BE%91.html"><small>上一篇</small><strong>RN 0.72 鸿蒙 ScrollView 完整控制流程</strong></a>
+          <a href="onPropsChanged%E5%B1%9E%E6%80%A7%E6%9B%B4%E6%96%B0%E8%B0%83%E7%94%A8%E9%93%BE.html" class="doc-pagination__next"><small>下一篇</small><strong>onPropsChanged 属性更新调用链</strong></a>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#1-%E6%9C%80%E9%87%8D%E8%A6%81%E7%9A%84%E7%BB%93%E8%AE%BA" data-level="2">1. 最重要的结论</a>
+<a href="#2-%E5%9B%9B%E7%A7%8D-action-%E5%88%86%E5%88%AB%E8%A1%A8%E7%A4%BA%E4%BB%80%E4%B9%88" data-level="2">2. 四种 action 分别表示什么</a>
+<a href="#2-1-down-%E4%B8%80%E6%A0%B9%E6%89%8B%E6%8C%87%E5%BC%80%E5%A7%8B%E6%8E%A5%E8%A7%A6%E5%B1%8F%E5%B9%95" data-level="3">2.1 DOWN：一根手指开始接触屏幕</a>
+<a href="#2-2-move-%E6%89%8B%E6%8C%87%E4%BB%8D%E6%8C%89%E7%9D%80-%E4%BD%8D%E7%BD%AE%E5%8F%91%E7%94%9F%E5%8F%98%E5%8C%96" data-level="3">2.2 MOVE：手指仍按着，位置发生变化</a>
+<a href="#2-3-up-%E6%89%8B%E6%8C%87%E6%AD%A3%E5%B8%B8%E7%A6%BB%E5%BC%80%E5%B1%8F%E5%B9%95" data-level="3">2.3 UP：手指正常离开屏幕</a>
+<a href="#2-4-cancel-%E8%BF%99%E6%AC%A1%E8%A7%A6%E6%91%B8%E8%A2%AB%E5%8F%96%E6%B6%88" data-level="3">2.4 CANCEL：这次触摸被取消</a>
+<a href="#3-down-%E5%92%8C-up-%E6%88%90%E5%AF%B9%E5%87%BA%E7%8E%B0-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BB%8D%E4%B8%8D%E4%B8%80%E5%AE%9A%E6%98%AF%E7%82%B9%E5%87%BB" data-level="2">3. DOWN 和 UP 成对出现，为什么仍不一定是点击</a>
+<a href="#4-scrollview-%E5%86%85%E7%82%B9%E5%87%BB%E5%AD%90%E7%BB%84%E4%BB%B6%E6%97%B6%E7%9A%84%E4%B8%A4%E6%9D%A1%E5%88%86%E6%94%AF" data-level="2">4. ScrollView 内点击子组件时的两条分支</a>
+<a href="#4-1-%E7%94%A8%E6%88%B7%E7%9C%9F%E7%9A%84%E6%83%B3%E7%82%B9%E5%87%BB" data-level="3">4.1 用户真的想点击</a>
+<a href="#4-2-%E7%94%A8%E6%88%B7%E4%BB%8E%E6%8C%89%E9%92%AE%E4%BD%8D%E7%BD%AE%E5%BC%80%E5%A7%8B%E6%BB%9A%E5%8A%A8" data-level="3">4.2 用户从按钮位置开始滚动</a>
+<a href="#5-%E6%9F%90%E4%B8%AA%E7%BB%84%E4%BB%B6%E4%B8%80%E5%AE%9A%E8%83%BD%E7%9C%8B%E5%88%B0-down-%E5%92%8C%E7%BB%88%E6%AD%A2%E4%BA%8B%E4%BB%B6%E5%90%97" data-level="2">5. 某个组件一定能看到 DOWN 和终止事件吗</a>
+<a href="#6-%E5%A4%9A%E6%8C%87%E8%A7%A6%E6%91%B8%E6%97%B6%E6%80%8E%E6%A0%B7%E7%90%86%E8%A7%A3-%E6%88%90%E5%AF%B9" data-level="2">6. 多指触摸时怎样理解“成对”</a>
+<a href="#7-scrollview-%E6%94%B6%E5%88%B0-up-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%86%85%E5%AE%B9%E8%BF%98%E4%BC%9A%E7%BB%A7%E7%BB%AD%E7%A7%BB%E5%8A%A8" data-level="2">7. ScrollView 收到 UP，为什么内容还会继续移动</a>
+<a href="#8-%E5%BD%93%E5%89%8D-scrollview-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8F%AA%E8%A7%82%E5%AF%9F-up" data-level="2">8. 当前 ScrollView 为什么只观察 UP</a>
+<a href="#9-%E4%B8%89%E4%B8%AA%E6%A6%82%E5%BF%B5%E4%B8%8D%E8%A6%81%E6%B7%B7%E6%B7%86" data-level="2">9. 三个概念不要混淆</a>
+<a href="#%E5%8E%9F%E5%A7%8B%E8%A7%A6%E6%91%B8%E7%BB%93%E6%9D%9F" data-level="3">原始触摸结束</a>
+<a href="#%E7%82%B9%E5%87%BB%E6%89%8B%E5%8A%BF%E6%88%90%E5%8A%9F" data-level="3">点击手势成功</a>
+<a href="#scrollview-%E5%86%85%E5%AE%B9%E5%81%9C%E6%AD%A2%E8%BF%90%E5%8A%A8" data-level="3">ScrollView 内容停止运动</a>
+<a href="#10-%E6%9C%80%E7%BB%88%E8%AE%B0%E5%BF%86%E5%9B%BE" data-level="2">10. 最终记忆图</a>
+<a href="#11-%E5%85%B3%E9%94%AE%E6%BA%90%E7%A0%81%E7%B4%A2%E5%BC%95" data-level="2">11. 关键源码索引</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../../assets/vendor/mermaid.min.js"></script>
+    <script src="../../../../assets/site.js"></script>
+  </body>
+</html>

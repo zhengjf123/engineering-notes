@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RN 0.72 鸿蒙 ScrollView 控制流程专题。">
+    <title>ScrollView · RNOH · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../../assets/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav><a href="../../index.html" aria-current="page">RNOH</a><a href="../../../cpp/index.html">C++</a><a href="../../../../skills/index.html">Skills</a></nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+    <main class="page-shell" id="main">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="../../../../index.html">首页</a><span aria-hidden="true">/</span>
+        <a href="../../../index.html">文档</a><span aria-hidden="true">/</span>
+        <a href="../../index.html">RNOH</a><span aria-hidden="true">/</span>
+        <a href="../index.html">组件</a><span aria-hidden="true">/</span><span>ScrollView</span>
+      </nav>
+      <section class="category-hero">
+        <p class="eyebrow">RNOH / Components / ScrollView</p>
+        <h1>ScrollView</h1>
+        <p>从全局控制流程出发，逐步深入触摸事件序列与 Fabric Props 更新机制。</p>
+        <span class="category-count">3 篇文档 · 推荐按顺序阅读</span>
+      </section>
+      <section class="section" aria-labelledby="docs-title">
+        <div class="section-heading">
+          <div><h2 id="docs-title">专题文档</h2><p>所有页面都使用相对链接，可在 GitHub Pages 或本地直接浏览。</p></div>
+        </div>
+        <ol class="path-list">
+          <li>
+            <div><a href="rn72滚动组件逻辑.html">RN 0.72 鸿蒙 ScrollView 完整控制流程</a><p>完整建立 JS → Fabric → RNOH → ArkUI 的滚动心智模型。</p></div>
+            <span class="path-list__tag">主文档</span>
+          </li>
+          <li>
+            <div><a href="触摸序列与点击滚动关系.html">触摸序列与点击、滚动的关系</a><p>DOWN、MOVE、UP、CANCEL 与点击/滚动竞争。</p></div>
+            <span class="path-list__tag">触摸专题</span>
+          </li>
+          <li>
+            <div><a href="onPropsChanged属性更新调用链.html"><code>onPropsChanged</code> 属性更新调用链</a><p>Fabric Mutation、新旧 Props 与 ArkUI 属性下发。</p></div>
+            <span class="path-list__tag">Props 专题</span>
+          </li>
+        </ol>
+      </section>
+    </main>
+    <footer class="site-footer">RNOH / 组件 / ScrollView · Engineering Notes</footer>
+    <script src="../../../../assets/site.js"></script>
+  </body>
+</html>

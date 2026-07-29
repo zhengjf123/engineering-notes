@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RNOH、C++ 与工程实践知识库。">
+    <title>Engineering Notes · 工程实践知识库</title>
+    <link rel="stylesheet" href="assets/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="index.html" aria-label="Engineering Notes 首页">
+          <span class="brand__mark">EN</span>
+          <span>Engineering Notes</span>
+        </a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="docs/rnoh/index.html">RNOH</a>
+          <a href="docs/cpp/index.html">C++</a>
+          <a href="skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <main class="page-shell" id="main">
+      <section class="hero">
+        <p class="eyebrow">Engineering knowledge base</p>
+        <h1>把排查过程，沉淀成可复用的工程认知。</h1>
+        <p class="hero__lead">
+          记录 RNOH、C++、性能分析与组件机制。每篇文档尽量从问题背景出发，
+          给出完整调用链、职责边界、源码位置和可视化流程。
+        </p>
+        <div class="hero__actions">
+          <a class="button button--primary" href="docs/rnoh/components/scrollview/index.html">开始阅读 ScrollView</a>
+          <a class="button" href="docs/index.html">浏览全部文档</a>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="knowledge-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Knowledge areas</p>
+            <h2 id="knowledge-title">一级知识目录</h2>
+          </div>
+          <p>按技术领域组织内容，再从功能、性能和组件维度逐层深入。</p>
+        </div>
+        <div class="card-grid">
+          <a class="topic-card" href="docs/rnoh/index.html">
+            <span class="topic-card__index">01 / PLATFORM</span>
+            <h3>RNOH</h3>
+            <p>React Native OpenHarmony 的渲染、挂载、组件、事件与性能机制。</p>
+            <span class="topic-card__meta">3 个二级目录 · ScrollView 专题已上线</span>
+          </a>
+          <a class="topic-card" href="docs/cpp/index.html">
+            <span class="topic-card__index">02 / LANGUAGE</span>
+            <h3>C++</h3>
+            <p>语言特性、工程实践、调试方法和 native 基础能力。</p>
+            <span class="topic-card__meta">目录已建立 · 持续补充</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="reading-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Current collection</p>
+            <h2 id="reading-title">ScrollView 推荐阅读顺序</h2>
+          </div>
+          <p>先建立完整控制流程，再分别深入触摸序列和属性更新机制。</p>
+        </div>
+        <ol class="path-list">
+          <li>
+            <div>
+              <a href="docs/rnoh/components/scrollview/rn72滚动组件逻辑.html">RN 0.72 鸿蒙 ScrollView 完整控制流程</a>
+              <p>从 JS、Fabric、RNOH 到 ArkUI，建立滚动机制的全局心智模型。</p>
+            </div>
+            <span class="path-list__tag">主文档</span>
+          </li>
+          <li>
+            <div>
+              <a href="docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html">触摸序列与点击、滚动的关系</a>
+              <p>理解 DOWN、MOVE、UP、CANCEL，以及点击为何会被滚动接管。</p>
+            </div>
+            <span class="path-list__tag">触摸专题</span>
+          </li>
+          <li>
+            <div>
+              <a href="docs/rnoh/components/scrollview/onPropsChanged属性更新调用链.html"><code>onPropsChanged</code> 属性更新调用链</a>
+              <p>理解 Fabric Mutation、新旧 Props 比较和 ArkUI 属性下发。</p>
+            </div>
+            <span class="path-list__tag">Props 专题</span>
+          </li>
+        </ol>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      Engineering Notes · 支持 GitHub Pages 在线访问，也支持克隆后离线浏览。
+    </footer>
+    <script src="assets/site.js"></script>
+  </body>
+</html>
