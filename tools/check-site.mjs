@@ -73,6 +73,62 @@ for (const file of htmlFiles) {
   }
 }
 
+const docsRoot = path.join(root, "docs");
+const markdownRoot = path.join(root, "markdown");
+const docsHtmlFiles = walk(docsRoot).filter((file) => file.endsWith(".html"));
+const markdownFiles = walk(markdownRoot).filter((file) => file.endsWith(".md"));
+let checkedMarkdownReferences = 0;
+
+for (const htmlFile of docsHtmlFiles) {
+  const relativePath = path.relative(docsRoot, htmlFile);
+  const markdownPath = path.join(
+    markdownRoot,
+    relativePath.replace(/\.html$/i, ".md")
+  );
+  if (!fs.existsSync(markdownPath)) {
+    errors.push(
+      `${path.relative(root, htmlFile)}: missing Markdown pair ${path.relative(root, markdownPath)}`
+    );
+  }
+}
+
+for (const markdownFile of markdownFiles) {
+  const relativePath = path.relative(markdownRoot, markdownFile);
+  const htmlPath = path.join(
+    docsRoot,
+    relativePath.replace(/\.md$/i, ".html")
+  );
+  if (!fs.existsSync(htmlPath)) {
+    errors.push(
+      `${path.relative(root, markdownFile)}: missing HTML pair ${path.relative(root, htmlPath)}`
+    );
+  }
+
+  const markdown = fs.readFileSync(markdownFile, "utf8");
+  const references = Array.from(
+    markdown.matchAll(/\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g),
+    (match) => match[1]
+  );
+
+  for (const reference of references) {
+    if (
+      reference.startsWith("#") ||
+      /^(?:https?:|mailto:|tel:|data:)/i.test(reference)
+    ) {
+      continue;
+    }
+
+    const pathOnly = decodePath(reference.split(/[?#]/, 1)[0]);
+    const target = path.resolve(path.dirname(markdownFile), pathOnly);
+    checkedMarkdownReferences += 1;
+    if (!fs.existsSync(target)) {
+      errors.push(
+        `${path.relative(root, markdownFile)}: broken Markdown reference "${reference}" -> ${path.relative(root, target)}`
+      );
+    }
+  }
+}
+
 if (errors.length > 0) {
   console.error(`Site check failed with ${errors.length} error(s):`);
   for (const error of errors) {
@@ -82,5 +138,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `Site check passed: ${htmlFiles.length} HTML files, ${checkedReferences} local references.`
+  `Site check passed: ${htmlFiles.length} HTML files, ${markdownFiles.length} Markdown pairs, ${checkedReferences} HTML references, ${checkedMarkdownReferences} Markdown references.`
 );

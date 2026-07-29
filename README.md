@@ -21,12 +21,33 @@ engineering-notes/
 │   │   └── components/
 │   │       └── scrollview/
 │   └── cpp/
+├── markdown/
+│   ├── rnoh/
+│   │   ├── performance/
+│   │   ├── features/
+│   │   └── components/
+│   │       └── scrollview/
+│   └── cpp/
 ├── skills/
 │   └── README.md
 └── AGENTS.md
 ```
 
-`docs/` 保存可阅读文档，`skills/` 保存可复用工作流，二者分开维护。
+`markdown/` 保存可编辑源文档，`docs/` 保存对应的 HTML 阅读版，`skills/` 保存可复用工作流。
+
+## Markdown 与 HTML 双份机制
+
+每份技术资料保留一份 Markdown 源文件和一份 HTML 阅读文件，二者使用相同的相对目录和文件名：
+
+```text
+markdown/rnoh/components/scrollview/触摸序列与点击滚动关系.md
+docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html
+```
+
+- 修改和审查：优先编辑 `markdown/` 中的 `.md`。
+- 网页阅读：访问 `docs/` 中对应的 `.html`。
+- 每次修改 Markdown 后，同步更新同路径、同文件名的 HTML。
+- `node tools/check-site.mjs` 会检查两棵目录是否一一对应，并检查网页本地链接。
 
 当前 ScrollView 专题包含：
 
