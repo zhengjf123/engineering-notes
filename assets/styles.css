@@ -892,7 +892,7 @@ button {
   font-size: 13px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1380px) {
   .doc-shell {
     grid-template-columns: 200px minmax(0, var(--article-width));
   }
