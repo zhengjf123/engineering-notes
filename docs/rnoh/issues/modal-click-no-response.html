@@ -29,6 +29,7 @@
           <nav class="side-nav">
             <a href="index.html">问题目录</a>
             <a href="modal-click-no-response.html" aria-current="page">Modal 点击无响应</a>
+            <a href="scrollview-friction-default-mismatch.html">ScrollView 摩擦系数</a>
           </nav>
         </div>
       </aside>
@@ -366,6 +367,10 @@ Modal 是否可触摸
 <p>核心的两个 <code>can*</code> 修复已经在模拟器复现场景中确认能够恢复 Modal 按钮点击。最终增加的 <code>onArkUINodeTouchIntercept</code> 只负责让页面占位节点保持补丁前行为，不参与 Dialog 内部事件分发。</p>
 
         </article>
+        <nav class="doc-pagination" aria-label="上一篇和下一篇">
+          <span></span>
+          <a href="scrollview-friction-default-mismatch.html" class="doc-pagination__next"><small>下一篇</small><strong>ScrollView 摩擦系数默认行为不一致</strong></a>
+        </nav>
       </main>
 
       <aside class="doc-toc" aria-label="本文目录">

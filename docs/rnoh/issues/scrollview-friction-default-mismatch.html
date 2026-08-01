@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RNOH 0.72 ScrollView 摩擦系数默认行为不一致的 PR 前后对比、根因定位与修复方案。">
+    <title>RNOH 问题 02：ScrollView 摩擦系数默认行为不一致 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航"><a href="../../android/index.html">Android</a>
+          <a href="../index.html" aria-current="page">RNOH</a>
+          <a href="../../cpp/index.html">C++</a>
+          <a href="../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="RNOH 问题目录">
+        <div>
+          <p class="side-label">RNOH 问题</p>
+          <nav class="side-nav">
+            <a href="index.html">问题目录</a>
+            <a href="modal-click-no-response.html">Modal 点击无响应</a>
+            <a href="scrollview-friction-default-mismatch.html" aria-current="page">ScrollView 摩擦系数</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="index.html">问题</a><span aria-hidden="true">/</span>
+          <span>ScrollView 摩擦系数</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>问题案例</strong> · RN 0.72 / RNOH ScrollView</span>
+          <span><a href="../../../markdown/rnoh/issues/scrollview-friction-default-mismatch.md">Markdown 源文件</a> · <a href="index.html">返回问题目录</a></span>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="rnoh-问题-02-scrollview-摩擦系数默认行为不一致">RNOH 问题 02：ScrollView 摩擦系数默认行为不一致</h1>
+<blockquote>
+<p><strong>问题来源</strong>：Codex 历史对话《摩擦系数变更》（<code>D:\rn72_0724</code>）。
+<strong>适用范围</strong>：鸿蒙 RN 0.72 / RNOH 0.72 ScrollView；高版本可能存在实现差异，请以对应分支源码为准。
+<strong>引入变更</strong>：<a href="https://gitcode.com/CPF-RN/ohos_react_native/pull/2427">PR #2427</a>；<strong>修复提交</strong>：<a href="https://gitcode.com/CPF-RN/ohos_react_native/pull/3170">PR #3170</a>，Commit <code>7d5a459c8</code>。
+<strong>验证状态</strong>：Harmony x86_64 目标单文件原生编译通过；模拟器/真机滚动体感及动态移除场景仍需运行时回归。</p>
+</blockquote>
+<h2 id="问题卡片"><a class="heading-anchor" href="#%E9%97%AE%E9%A2%98%E5%8D%A1%E7%89%87" aria-label="链接到本节">#</a>问题卡片</h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>现象</td>
+<td>PR #2427 后，未设置 <code>decelerationRate</code> 时最终 ArkUI <code>friction</code> 从 <code>0.75</code> 变为约 <code>0.5</code></td>
+</tr>
+<tr>
+<td>直接原因</td>
+<td>Harmony normal 已改为 <code>0.997</code>，但未设置属性仍携带 RN 社区默认值 <code>0.998</code></td>
+</tr>
+<tr>
+<td>关键边界</td>
+<td>业务显式传入数值 <code>0.998</code> 是合法新能力，不能把所有 <code>0.998</code> 都特判成 normal</td>
+</tr>
+<tr>
+<td>修复位置</td>
+<td>RNOH <code>ScrollViewRawProps::getFromDynamic</code>：缺失或 <code>null</code> 时补 Harmony 默认值 <code>0.997</code></td>
+</tr>
+<tr>
+<td>修改范围</td>
+<td>仅 <code>ScrollViewComponentInstance.h/.cpp</code>，不修改 RN 社区 <code>ScrollViewProps</code></td>
+</tr>
+</tbody></table>
+<h2 id="最短结论"><a class="heading-anchor" href="#%E6%9C%80%E7%9F%AD%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>最短结论</h2>
+<p>这不是浮点精度问题。<code>0.998</code> 与 Harmony normal <code>0.997</code> 本来就相差约 <code>0.001</code>，远大于 <code>0.00001</code> 的判定容差，因此一定会进入连续公式并得到约 <code>0.5</code>。</p>
+<p>正确修复不是扩大 epsilon，也不是把 <code>0.998</code> 强行当成 normal，而是根据 raw props 区分“未设置/动态移除”和“显式数值”：前者补 <code>0.997</code>，后者保留用户输入。</p>
+<p>本文档对应 RNOH 0.72 当前仓库，解决以下问题：</p>
+<blockquote>
+<p>PR #2427 为 ScrollView 增加数值型 <code>decelerationRate</code> 到 ArkUI <code>friction</code> 的连续映射后，<code>decelerationRate=&quot;normal&quot;</code> 和 <code>&quot;fast&quot;</code> 的最终效果保持不变，但未设置 <code>decelerationRate</code> 时仍使用 RN 社区默认值 <code>0.998</code>，导致 ArkUI <code>friction</code> 从修改前的 <code>0.75</code> 变成约 <code>0.5</code>。同时，用户显式设置数值 <code>0.998</code> 时应继续使用新的连续映射，不能被当成默认值。</p>
+</blockquote>
+<p>相关改动由 <a href="https://gitcode.com/CPF-RN/ohos_react_native/pull/2427">PR #2427</a> 引入。</p>
+<h2 id="第一部分-当前方案-patch"><a class="heading-anchor" href="#%E7%AC%AC%E4%B8%80%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88-patch" aria-label="链接到本节">#</a>第一部分：当前方案 Patch</h2>
+<p>涉及文件：</p>
+<ul>
+<li><code>tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.h</code></li>
+<li><code>tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp</code></li>
+</ul>
+<div class="code-frame"><span class="code-frame__label">diff</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-diff">diff --git a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp
+index 560d97849..5db267d46 100644
+--- a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp
++++ b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp
+@@ -189,7 +189,8 @@ void rnoh::ScrollViewComponentInstance::onPropsChanged(
+   m_disableIntervalMomentum = props-&gt;disableIntervalMomentum;
+   m_scrollToOverflowEnabled = props-&gt;scrollToOverflowEnabled;
+   m_scrollNode.setHorizontal(isHorizontal(props))
+-      .setFriction(getFrictionFromDecelerationRate(props-&gt;decelerationRate))
++      .setFriction(
++          getFrictionFromDecelerationRate(rawProps.decelerationRate))
+       .setScrollBarDisplayMode(getScrollBarDisplayMode(
+           isHorizontal(props),
+           m_persistentScrollbar,
+@@ -556,7 +557,6 @@ ScrollViewComponentInstance::getFrictionFromDecelerationRate(
+     facebook::react::Float decelerationRate) {
+   constexpr facebook::react::Float ARKUI_NORMAL = 0.75f;
+   constexpr facebook::react::Float ARKUI_FAST = 2.0f;
+-  constexpr facebook::react::Float HARMONY_NORMAL = 0.997f;
+   constexpr facebook::react::Float HARMONY_FAST = 0.992f;
+   constexpr facebook::react::Float kRateEpsilon = 0.00001f;
+   constexpr facebook::react::Float kMinFriction = 0.1f;
+@@ -567,7 +567,10 @@ ScrollViewComponentInstance::getFrictionFromDecelerationRate(
+   }
+
+   // Fast path for preset rates.
+-  if (std::abs(decelerationRate - HARMONY_NORMAL) &lt; kRateEpsilon) {
++  if (std::abs(
++          decelerationRate -
++          ScrollViewRawProps::HARMONY_NORMAL_DECELERATION_RATE) &lt;
++      kRateEpsilon) {
+     return ARKUI_NORMAL;
+   }
+   if (std::abs(decelerationRate - HARMONY_FAST) &lt; kRateEpsilon) {
+@@ -878,8 +881,20 @@ ScrollViewComponentInstance::ScrollViewRawProps::getFromDynamic(folly::dynamic v
+   auto flingSpeedLimit = (value.count(&quot;flingSpeedLimit&quot;) &gt; 0)
+       ? std::optional&lt;float&gt;(value[&quot;flingSpeedLimit&quot;].asDouble())
+       : std::nullopt;
++  auto decelerationRate =
++      (value.count(&quot;decelerationRate&quot;) &gt; 0 &amp;&amp;
++       !value[&quot;decelerationRate&quot;].isNull())
++      ? static_cast&lt;facebook::react::Float&gt;(
++            value[&quot;decelerationRate&quot;].asDouble())
++      : HARMONY_NORMAL_DECELERATION_RATE;
+
+-  return {overScrollMode, nestedEnabled, endFillColor, fadingEdgeLength, flingSpeedLimit};
++  return {
++      overScrollMode,
++      nestedEnabled,
++      endFillColor,
++      fadingEdgeLength,
++      flingSpeedLimit,
++      decelerationRate};
+ }
+
+ facebook::react::Point ScrollViewComponentInstance::getContentViewOffset()
+diff --git a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.h b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.h
+index 68969e016..f482c148b 100644
+--- a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.h
++++ b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.h
+@@ -81,6 +81,10 @@ class ScrollViewComponentInstance
+     std::optional&lt;uint32_t&gt; endFillColor;
+     std::optional&lt;float&gt; fadingEdgeLength;
+     std::optional&lt;float&gt; flingSpeedLimit;
++    static constexpr facebook::react::Float
++        HARMONY_NORMAL_DECELERATION_RATE = 0.997f;
++    facebook::react::Float decelerationRate{
++        HARMONY_NORMAL_DECELERATION_RATE};
+     static ScrollViewRawProps getFromDynamic(folly::dynamic value);
+   };
+   ScrollViewRawProps m_rawProps;</code></pre></div>
+<p>改动仅位于鸿蒙 RNOH 的 <code>ScrollViewComponentInstance.h/.cpp</code>。RN 社区 <code>ScrollViewProps.h</code>、<code>ScrollViewProps.cpp</code>、JS 属性类型、ArkUI <code>ScrollNode</code> 和连续映射公式均保持原实现。</p>
+<h2 id="第二部分-问题原因"><a class="heading-anchor" href="#%E7%AC%AC%E4%BA%8C%E9%83%A8%E5%88%86-%E9%97%AE%E9%A2%98%E5%8E%9F%E5%9B%A0" aria-label="链接到本节">#</a>第二部分：问题原因</h2>
+<h3 id="2-1-pr-前只有-normal-和-fast-两档效果"><a class="heading-anchor" href="#2-1-pr-%E5%89%8D%E5%8F%AA%E6%9C%89-normal-%E5%92%8C-fast-%E4%B8%A4%E6%A1%A3%E6%95%88%E6%9E%9C" aria-label="链接到本节">#</a>2.1 PR 前只有 normal 和 fast 两档效果</h3>
+<p>PR #2427 合入前，<code>getFrictionFromDecelerationRate</code> 使用二段映射：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">facebook::react::Float IOS_NORMAL = 0.998;
+facebook::react::Float IOS_FAST = 0.99;
+facebook::react::Float ARKUI_FAST = 2;
+facebook::react::Float ARKUI_NORMAL = 0.75;
+
+if (decelerationRate &lt; (IOS_NORMAL + IOS_FAST) / 2) {
+  return ARKUI_FAST;
+} else {
+  return ARKUI_NORMAL;
+}</code></pre></div>
+<p>分界值为：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">(0.998 + 0.99) / 2 = 0.994</code></pre></div>
+<p>因此：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">decelerationRate &lt; 0.994  → ArkUI friction = 2.0
+decelerationRate ≥ 0.994  → ArkUI friction = 0.75</code></pre></div>
+<p>修改前的三个常用场景为：</p>
+<table>
+<thead>
+<tr>
+<th>RN 使用方式</th>
+<th align="right">原生收到的 <code>decelerationRate</code></th>
+<th align="right">ArkUI <code>friction</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>decelerationRate=&quot;normal&quot;</code></td>
+<td align="right"><code>0.998</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>decelerationRate=&quot;fast&quot;</code></td>
+<td align="right"><code>0.99</code></td>
+<td align="right"><code>2.0</code></td>
+</tr>
+<tr>
+<td>不设置 <code>decelerationRate</code></td>
+<td align="right">RN 默认值 <code>0.998</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+</tbody></table>
+<h3 id="2-2-pr-后字符串预设和数值映射同时发生变化"><a class="heading-anchor" href="#2-2-pr-%E5%90%8E%E5%AD%97%E7%AC%A6%E4%B8%B2%E9%A2%84%E8%AE%BE%E5%92%8C%E6%95%B0%E5%80%BC%E6%98%A0%E5%B0%84%E5%90%8C%E6%97%B6%E5%8F%91%E7%94%9F%E5%8F%98%E5%8C%96" aria-label="链接到本节">#</a>2.2 PR 后字符串预设和数值映射同时发生变化</h3>
+<p>PR #2427 将 Harmony JS 侧的字符串预设改为：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">&quot;normal&quot; → 0.997
+&quot;fast&quot;   → 0.992</code></pre></div>
+<p>原生侧则增加两个快速分支和连续公式：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">HARMONY_NORMAL = 0.997f;
+HARMONY_FAST = 0.992f;
+
+0.997 → ARKUI_NORMAL = 0.75
+0.992 → ARKUI_FAST = 2.0
+其他合法数值 → 250 × (1 - decelerationRate)</code></pre></div>
+<p>因此显式设置字符串时，修改前后的最终效果一致：</p>
+<table>
+<thead>
+<tr>
+<th>RN 使用方式</th>
+<th align="right">PR 前 <code>friction</code></th>
+<th align="right">PR 后 <code>friction</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&quot;normal&quot;</code></td>
+<td align="right"><code>0.75</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;fast&quot;</code></td>
+<td align="right"><code>2.0</code></td>
+<td align="right"><code>2.0</code></td>
+</tr>
+</tbody></table>
+<h3 id="2-3-未设置属性不会经过-harmony-js-字符串转换"><a class="heading-anchor" href="#2-3-%E6%9C%AA%E8%AE%BE%E7%BD%AE%E5%B1%9E%E6%80%A7%E4%B8%8D%E4%BC%9A%E7%BB%8F%E8%BF%87-harmony-js-%E5%AD%97%E7%AC%A6%E4%B8%B2%E8%BD%AC%E6%8D%A2" aria-label="链接到本节">#</a>2.3 未设置属性不会经过 Harmony JS 字符串转换</h3>
+<p>Harmony <code>ScrollView.harmony.js</code> 只在属性非空时调用 <code>processDecelerationRate</code>：</p>
+<div class="code-frame"><span class="code-frame__label">js</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-js">const { decelerationRate } = this.props;
+if (decelerationRate != null) {
+  props.decelerationRate = processDecelerationRate(decelerationRate);
+}</code></pre></div>
+<p>所以：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">decelerationRate=&quot;normal&quot;
+  → JS 转换为 0.997
+  → 原生 normal 分支
+  → friction = 0.75
+
+未设置 decelerationRate
+  → JS 不写入该属性
+  → Fabric 使用 RN 社区默认值 0.998</code></pre></div>
+<p>RN 社区默认值位于：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">// ScrollViewProps.h
+Float decelerationRate{0.998f};</code></pre></div>
+<p>该值在 PR 前会进入二段映射的 normal 档，得到 <code>0.75</code>；在 PR 后不再等于 Harmony normal 预设 <code>0.997</code>，于是进入连续公式：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">friction = 250 × (1 - 0.998)
+         ≈ 0.5</code></pre></div>
+<p>所以 PR 后三个常用场景实际变为：</p>
+<table>
+<thead>
+<tr>
+<th>RN 使用方式</th>
+<th align="right">有效 <code>decelerationRate</code></th>
+<th align="right">PR 前 <code>friction</code></th>
+<th align="right">PR 后当前 <code>friction</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&quot;normal&quot;</code></td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;fast&quot;</code></td>
+<td align="right"><code>0.992</code></td>
+<td align="right"><code>2.0</code></td>
+<td align="right"><code>2.0</code></td>
+</tr>
+<tr>
+<td>不设置</td>
+<td align="right">RN 默认值 <code>0.998</code></td>
+<td align="right"><code>0.75</code></td>
+<td align="right">约 <code>0.5</code></td>
+</tr>
+</tbody></table>
+<h3 id="2-4-不能根据数值-0-998-判断是否为默认场景"><a class="heading-anchor" href="#2-4-%E4%B8%8D%E8%83%BD%E6%A0%B9%E6%8D%AE%E6%95%B0%E5%80%BC-0-998-%E5%88%A4%E6%96%AD%E6%98%AF%E5%90%A6%E4%B8%BA%E9%BB%98%E8%AE%A4%E5%9C%BA%E6%99%AF" aria-label="链接到本节">#</a>2.4 不能根据数值 0.998 判断是否为默认场景</h3>
+<p>PR #2427 的一项目标是允许用户直接设置数值型 <code>decelerationRate</code>，由原生侧进行连续映射。</p>
+<p>因此下面两种输入虽然最终都会让 Fabric Props 中的 <code>decelerationRate</code> 等于 <code>0.998</code>，语义却不同：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">场景一：用户没有设置属性
+  → 0.998 来自 RN 社区默认值
+  → 应与 Harmony &quot;normal&quot; 保持一致
+  → 应使用 0.997 对应的 friction 0.75
+
+场景二：用户显式设置 decelerationRate={0.998}
+  → 0.998 是用户输入
+  → 应保留新的连续映射能力
+  → friction ≈ 0.5</code></pre></div>
+<p>如果直接在 <code>getFrictionFromDecelerationRate</code> 中将所有 <code>0.998</code> 特判为 normal，就会覆盖用户的显式数值，破坏 PR 新增的数值映射能力。</p>
+<p>同理，仅把 RN 社区 <code>ScrollViewProps</code> 默认值改成 <code>0.997</code> 虽然可以改变默认结果，但会把 Harmony 平台特定策略写入 RN 社区代码，并且需要同步维护 <code>ScrollViewProps.h</code> 和 <code>ScrollViewProps.cpp</code> 中的多个默认入口。</p>
+<h3 id="2-5-rawprops-能区分未设置-显式设置和动态移除"><a class="heading-anchor" href="#2-5-rawprops-%E8%83%BD%E5%8C%BA%E5%88%86%E6%9C%AA%E8%AE%BE%E7%BD%AE-%E6%98%BE%E5%BC%8F%E8%AE%BE%E7%BD%AE%E5%92%8C%E5%8A%A8%E6%80%81%E7%A7%BB%E9%99%A4" aria-label="链接到本节">#</a>2.5 rawProps 能区分未设置、显式设置和动态移除</h3>
+<p>RNOH Props 保存了 JS 原始属性 <code>rawProps</code>。其状态可以区分三个场景：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th align="right"><code>rawProps.count(&quot;decelerationRate&quot;)</code></th>
+<th align="right"><code>rawProps[&quot;decelerationRate&quot;].isNull()</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>首次未设置</td>
+<td align="right"><code>0</code></td>
+<td align="right">不读取</td>
+</tr>
+<tr>
+<td>显式设置字符串或数值</td>
+<td align="right">大于 <code>0</code></td>
+<td align="right"><code>false</code></td>
+</tr>
+<tr>
+<td>设置后动态移除</td>
+<td align="right">大于 <code>0</code></td>
+<td align="right"><code>true</code></td>
+</tr>
+</tbody></table>
+<p>动态移除需要额外检查 <code>isNull()</code>，因为 RNOH 的 <code>Props</code> 会合并前后两次 <code>rawProps</code>；属性移除后键可能仍然存在，但值会变成 <code>null</code>。</p>
+<p>因此，<code>ScrollViewRawProps::getFromDynamic</code> 中需要同时判断键是否存在、值是否非 <code>null</code>：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">value.count(&quot;decelerationRate&quot;) &gt; 0 &amp;&amp;
+    !value[&quot;decelerationRate&quot;].isNull()</code></pre></div>
+<h3 id="2-6-最终根因"><a class="heading-anchor" href="#2-6-%E6%9C%80%E7%BB%88%E6%A0%B9%E5%9B%A0" aria-label="链接到本节">#</a>2.6 最终根因</h3>
+<p>根因不是 <code>0.998</code> 与 <code>0.997</code> 的普通浮点误差，也不是 <code>&quot;normal&quot;</code> 和 <code>&quot;fast&quot;</code> 的预设映射错误。</p>
+<p>更精确的结论是：</p>
+<blockquote>
+<p>PR #2427 已经把显式 <code>&quot;normal&quot;</code> 和 <code>&quot;fast&quot;</code> 转换成 Harmony 对应的 <code>0.997</code> 和 <code>0.992</code>，但未设置属性时不会经过 JS 转换，Fabric 仍提供 RN 社区默认值 <code>0.998</code>。新的原生映射无法仅根据最终数值判断 <code>0.998</code> 来自社区默认值还是用户显式输入，导致默认场景被误当成自定义数值并映射为约 <code>0.5</code>。</p>
+</blockquote>
+<h2 id="第三部分-当前方案如何解决此问题"><a class="heading-anchor" href="#%E7%AC%AC%E4%B8%89%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3%E6%AD%A4%E9%97%AE%E9%A2%98" aria-label="链接到本节">#</a>第三部分：当前方案如何解决此问题</h2>
+<h3 id="3-1-在鸿蒙-scrollview-组件实例层补齐默认语义"><a class="heading-anchor" href="#3-1-%E5%9C%A8%E9%B8%BF%E8%92%99-scrollview-%E7%BB%84%E4%BB%B6%E5%AE%9E%E4%BE%8B%E5%B1%82%E8%A1%A5%E9%BD%90%E9%BB%98%E8%AE%A4%E8%AF%AD%E4%B9%89" aria-label="链接到本节">#</a>3.1 在鸿蒙 ScrollView 组件实例层补齐默认语义</h3>
+<p>方案不修改 RN 社区默认值，而是在鸿蒙 <code>ScrollViewRawProps</code> 中定义 Harmony normal 默认值和解析后的有效值：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">static constexpr facebook::react::Float
+    HARMONY_NORMAL_DECELERATION_RATE = 0.997f;
+facebook::react::Float decelerationRate{
+    HARMONY_NORMAL_DECELERATION_RATE};</code></pre></div>
+<p><code>getFromDynamic</code> 负责解析默认语义：用户提供了有效属性就保留其数值；首次未设置或动态移除时使用 Harmony normal：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">auto decelerationRate =
+    (value.count(&quot;decelerationRate&quot;) &gt; 0 &amp;&amp;
+     !value[&quot;decelerationRate&quot;].isNull())
+    ? static_cast&lt;facebook::react::Float&gt;(
+          value[&quot;decelerationRate&quot;].asDouble())
+    : HARMONY_NORMAL_DECELERATION_RATE;</code></pre></div>
+<p><code>onPropsChanged</code> 只消费解析后的有效值，并继续复用原有映射函数：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">auto rawProps = ScrollViewRawProps::getFromDynamic(props-&gt;rawProps);
+// ...
+setFriction(
+    getFrictionFromDecelerationRate(rawProps.decelerationRate))</code></pre></div>
+<p>这种职责划分与当前 RNOH 的既有实现一致：</p>
+<table>
+<thead>
+<tr>
+<th>组件原始属性解析</th>
+<th>属性未设置时的处理</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ImageRawProps::getFromDynamic</code></td>
+<td><code>resizeMethod=&quot;auto&quot;</code></td>
+<td>在鸿蒙组件层补齐实际采用的默认策略</td>
+</tr>
+<tr>
+<td><code>ViewRawProps::getFromDynamic</code></td>
+<td><code>needsOffscreenAlphaCompositing=false</code></td>
+<td>返回下游可以直接消费的有效值</td>
+</tr>
+<tr>
+<td><code>ScrollViewRawProps::getFromDynamic</code></td>
+<td><code>decelerationRate=0.997</code></td>
+<td>补齐 Harmony normal，并保留显式数值</td>
+</tr>
+</tbody></table>
+<p><code>overScrollMode</code>、<code>nestedScrollEnabled</code> 等字段未设置时返回 <code>nullopt</code>，是因为 <code>nullopt</code> 本身就表示“不覆盖 ArkUI 当前配置”；<code>decelerationRate</code> 不属于这种情况，<code>onPropsChanged</code> 每次都会调用 <code>setFriction</code>，因此这里需要返回一个确定的有效默认值。</p>
+<p>Harmony 的 <code>ScrollView.harmony.js</code> 会先通过 <code>processDecelerationRate</code> 将 <code>&quot;normal&quot;</code>、<code>&quot;fast&quot;</code> 分别转换为数值 <code>0.997</code>、<code>0.992</code>，所以 <code>getFromDynamic</code> 对有效输入调用 <code>asDouble()</code> 与当前属性传递类型一致。</p>
+<p>这使默认策略的所有权保持在鸿蒙适配层：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">RN 社区 Props
+  → 继续保留社区默认值和上游代码
+
+鸿蒙 RNOH ScrollViewComponentInstance
+  → getFromDynamic 解析 rawProps
+  → 未设置或值为 null 时补充 Harmony normal=0.997
+  → 显式输入保持用户数值
+
+原有连续映射函数
+  → 处理解析后的有效值
+  → 继续支持字符串预设和用户显式数值</code></pre></div>
+<h3 id="3-2-显式数值不会被误判为默认值"><a class="heading-anchor" href="#3-2-%E6%98%BE%E5%BC%8F%E6%95%B0%E5%80%BC%E4%B8%8D%E4%BC%9A%E8%A2%AB%E8%AF%AF%E5%88%A4%E4%B8%BA%E9%BB%98%E8%AE%A4%E5%80%BC" aria-label="链接到本节">#</a>3.2 显式数值不会被误判为默认值</h3>
+<p>修复后的关键行为如下：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">用户未设置
+  → rawProps 中无有效 decelerationRate
+  → effective rate = 0.997
+  → friction = 0.75
+
+用户显式设置 0.998
+  → rawProps 中存在非 null 数值
+  → effective rate = 0.998
+  → friction = 250 × (1 - 0.998)
+  → friction ≈ 0.5</code></pre></div>
+<p>因此该方案同时满足：</p>
+<ol>
+<li>恢复未设置属性时的原有 normal 效果；</li>
+<li>保留 PR 新增的数值型连续映射能力。</li>
+</ol>
+<h3 id="3-3-动态移除属性时恢复-harmony-默认值"><a class="heading-anchor" href="#3-3-%E5%8A%A8%E6%80%81%E7%A7%BB%E9%99%A4%E5%B1%9E%E6%80%A7%E6%97%B6%E6%81%A2%E5%A4%8D-harmony-%E9%BB%98%E8%AE%A4%E5%80%BC" aria-label="链接到本节">#</a>3.3 动态移除属性时恢复 Harmony 默认值</h3>
+<p>例如业务从：</p>
+<div class="code-frame"><span class="code-frame__label">jsx</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-jsx">&lt;ScrollView decelerationRate={0.995} /&gt;</code></pre></div>
+<p>动态切换为：</p>
+<div class="code-frame"><span class="code-frame__label">jsx</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-jsx">&lt;ScrollView /&gt;</code></pre></div>
+<p>RNOH 合并后的 <code>rawProps</code> 中可能仍存在 <code>decelerationRate</code> 键，但对应值为 <code>null</code>。当前方案通过 <code>isNull()</code> 将其识别为已移除：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">显式 0.995
+  → getFromDynamic 保留显式值
+  → friction ≈ 1.25
+
+移除属性
+  → rawProps value = null
+  → getFromDynamic 使用 Harmony 默认值
+  → effective rate = 0.997
+  → friction = 0.75</code></pre></div>
+<p>如果只检查 <code>count()</code>，动态移除场景就可能被误判为仍有有效输入。</p>
+<h3 id="3-4-修改前后结果"><a class="heading-anchor" href="#3-4-%E4%BF%AE%E6%94%B9%E5%89%8D%E5%90%8E%E7%BB%93%E6%9E%9C" aria-label="链接到本节">#</a>3.4 修改前后结果</h3>
+<table>
+<thead>
+<tr>
+<th>RN 使用方式</th>
+<th align="right">修复前有效值</th>
+<th align="right">修复前 <code>friction</code></th>
+<th align="right">修复后有效值</th>
+<th align="right">修复后 <code>friction</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不设置</td>
+<td align="right">社区默认 <code>0.998</code></td>
+<td align="right">约 <code>0.5</code></td>
+<td align="right">Harmony 默认 <code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;normal&quot;</code></td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;fast&quot;</code></td>
+<td align="right"><code>0.992</code></td>
+<td align="right"><code>2.0</code></td>
+<td align="right"><code>0.992</code></td>
+<td align="right"><code>2.0</code></td>
+</tr>
+<tr>
+<td>显式 <code>0.998</code></td>
+<td align="right"><code>0.998</code></td>
+<td align="right">约 <code>0.5</code></td>
+<td align="right"><code>0.998</code></td>
+<td align="right">约 <code>0.5</code></td>
+</tr>
+<tr>
+<td>显式 <code>0.995</code></td>
+<td align="right"><code>0.995</code></td>
+<td align="right">约 <code>1.25</code></td>
+<td align="right"><code>0.995</code></td>
+<td align="right">约 <code>1.25</code></td>
+</tr>
+<tr>
+<td>设置后移除</td>
+<td align="right">社区默认 <code>0.998</code></td>
+<td align="right">约 <code>0.5</code></td>
+<td align="right">Harmony 默认 <code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+</tbody></table>
+<h3 id="3-5-对原有行为和性能的影响"><a class="heading-anchor" href="#3-5-%E5%AF%B9%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA%E5%92%8C%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D" aria-label="链接到本节">#</a>3.5 对原有行为和性能的影响</h3>
+<ul>
+<li><strong>RN 社区代码</strong>：<code>ScrollViewProps.h</code> 和 <code>ScrollViewProps.cpp</code> 均未修改，减少后续同步上游 RN 时的补丁维护。</li>
+<li><strong>字符串预设</strong>：<code>&quot;normal&quot;</code> 和 <code>&quot;fast&quot;</code> 的 JS 转换及最终 <code>friction</code> 不变。</li>
+<li><strong>数值属性</strong>：所有显式数值继续进入 PR #2427 的快速分支或连续公式。</li>
+<li><strong>默认行为</strong>：首次不设置和动态移除属性都恢复为 Harmony normal，对齐 PR 前的最终 <code>friction=0.75</code>。</li>
+<li><strong>ArkUI 接口</strong>：仍调用原有 <code>ScrollNode::setFriction</code>，未改变节点属性接口。</li>
+<li><strong>接口和 ABI</strong>：没有修改公开 JS/C API、虚接口或函数签名；仅在 RNOH 内部嵌套的 <code>ScrollViewRawProps</code> 中增加一个 <code>Float</code> 字段，该结构随 RNOH 模块一起编译，不属于对外公开 ABI。</li>
+<li><strong>线程安全</strong>：只读取当前不可变 Props，没有增加共享状态。</li>
+<li><strong>性能</strong>：<code>getFromDynamic</code> 每次解析只增加一次属性键查询和一次 null 判断，没有新增分配、监听或遍历，影响可忽略。</li>
+<li><strong>修改范围</strong>：只修改鸿蒙 ScrollView 组件实例的 <code>.h/.cpp</code> 两个文件，不影响其他 RN 平台和其他组件。</li>
+</ul>
+<h3 id="3-6-验证场景"><a class="heading-anchor" href="#3-6-%E9%AA%8C%E8%AF%81%E5%9C%BA%E6%99%AF" aria-label="链接到本节">#</a>3.6 验证场景</h3>
+<p>建议至少验证以下场景：</p>
+<ol>
+<li>首次渲染时不设置 <code>decelerationRate</code>，确认最终使用 normal 滚动效果。</li>
+<li>设置 <code>decelerationRate=&quot;normal&quot;</code>，确认最终效果与未设置一致。</li>
+<li>设置 <code>decelerationRate=&quot;fast&quot;</code>，确认最终使用 fast 滚动效果。</li>
+<li>显式设置 <code>decelerationRate={0.998}</code>，确认仍走连续映射而不是 normal 特判。</li>
+<li>显式设置 <code>decelerationRate={0.995}</code>，确认最终 <code>friction</code> 约为 <code>1.25</code>。</li>
+<li>从自定义数值动态移除 <code>decelerationRate</code>，确认恢复 normal 效果。</li>
+<li>从 <code>&quot;fast&quot;</code> 动态移除 <code>decelerationRate</code>，确认恢复 normal 效果。</li>
+</ol>
+<p>如需通过日志确认分支，可在本地验证版本临时记录：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">getFromDynamic 输入中是否存在 decelerationRate
+getFromDynamic 输入值是否为 null
+getFromDynamic 解析出的 decelerationRate
+最终计算得到的 ArkUI friction</code></pre></div>
+<p>预期核心结果：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">未设置：
+rawProps 中无有效输入
+effectiveDecelerationRate=0.997
+friction=0.75
+
+显式设置 0.998：
+rawProps 中存在非 null 数值
+effectiveDecelerationRate=0.998
+friction≈0.5</code></pre></div>
+<h3 id="3-7-当前验证结果和边界"><a class="heading-anchor" href="#3-7-%E5%BD%93%E5%89%8D%E9%AA%8C%E8%AF%81%E7%BB%93%E6%9E%9C%E5%92%8C%E8%BE%B9%E7%95%8C" aria-label="链接到本节">#</a>3.7 当前验证结果和边界</h3>
+<p>当前修改已经使用 Tester 工程现有的 x86_64 Harmony 原生构建图，对以下目标完成单文件编译：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">RNOHCorePackage/ComponentInstances/ScrollViewComponentInstance.cpp</code></pre></div>
+<p>编译成功，没有产生本次修改相关的错误或新增警告。</p>
+<p>同时按当前源码的单精度计算验证了关键结果：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th><code>getFromDynamic</code> 取值来源</th>
+<th align="right">有效值</th>
+<th align="right">计算结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>首次未设置</td>
+<td>Harmony 默认值</td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;normal&quot;</code></td>
+<td>显式属性值</td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+<tr>
+<td><code>&quot;fast&quot;</code></td>
+<td>显式属性值</td>
+<td align="right"><code>0.992</code></td>
+<td align="right"><code>2.0</code></td>
+</tr>
+<tr>
+<td>显式 <code>0.998</code></td>
+<td>显式属性值</td>
+<td align="right"><code>0.998</code></td>
+<td align="right">约 <code>0.499994</code></td>
+</tr>
+<tr>
+<td>显式 <code>0.995</code></td>
+<td>显式属性值</td>
+<td align="right"><code>0.995</code></td>
+<td align="right">约 <code>1.249999</code></td>
+</tr>
+<tr>
+<td>动态移除</td>
+<td>Harmony 默认值</td>
+<td align="right"><code>0.997</code></td>
+<td align="right"><code>0.75</code></td>
+</tr>
+</tbody></table>
+<p>以上结果证明源码可以编译，并且默认值选择与数值公式符合方案预期。滚动距离、速度衰减体感以及动态属性切换仍需在模拟器或真机上按 3.6 节场景完成运行时回归，单文件编译不能替代设备行为验证。</p>
+
+        </article>
+        <nav class="doc-pagination" aria-label="上一篇和下一篇">
+          <a href="modal-click-no-response.html"><small>上一篇</small><strong>Modal 路由切换后点击无响应</strong></a>
+          <span></span>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#%E9%97%AE%E9%A2%98%E5%8D%A1%E7%89%87" data-level="2">问题卡片</a>
+<a href="#%E6%9C%80%E7%9F%AD%E7%BB%93%E8%AE%BA" data-level="2">最短结论</a>
+<a href="#%E7%AC%AC%E4%B8%80%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88-patch" data-level="2">第一部分：当前方案 Patch</a>
+<a href="#%E7%AC%AC%E4%BA%8C%E9%83%A8%E5%88%86-%E9%97%AE%E9%A2%98%E5%8E%9F%E5%9B%A0" data-level="2">第二部分：问题原因</a>
+<a href="#2-1-pr-%E5%89%8D%E5%8F%AA%E6%9C%89-normal-%E5%92%8C-fast-%E4%B8%A4%E6%A1%A3%E6%95%88%E6%9E%9C" data-level="3">2.1 PR 前只有 normal 和 fast 两档效果</a>
+<a href="#2-2-pr-%E5%90%8E%E5%AD%97%E7%AC%A6%E4%B8%B2%E9%A2%84%E8%AE%BE%E5%92%8C%E6%95%B0%E5%80%BC%E6%98%A0%E5%B0%84%E5%90%8C%E6%97%B6%E5%8F%91%E7%94%9F%E5%8F%98%E5%8C%96" data-level="3">2.2 PR 后字符串预设和数值映射同时发生变化</a>
+<a href="#2-3-%E6%9C%AA%E8%AE%BE%E7%BD%AE%E5%B1%9E%E6%80%A7%E4%B8%8D%E4%BC%9A%E7%BB%8F%E8%BF%87-harmony-js-%E5%AD%97%E7%AC%A6%E4%B8%B2%E8%BD%AC%E6%8D%A2" data-level="3">2.3 未设置属性不会经过 Harmony JS 字符串转换</a>
+<a href="#2-4-%E4%B8%8D%E8%83%BD%E6%A0%B9%E6%8D%AE%E6%95%B0%E5%80%BC-0-998-%E5%88%A4%E6%96%AD%E6%98%AF%E5%90%A6%E4%B8%BA%E9%BB%98%E8%AE%A4%E5%9C%BA%E6%99%AF" data-level="3">2.4 不能根据数值 0.998 判断是否为默认场景</a>
+<a href="#2-5-rawprops-%E8%83%BD%E5%8C%BA%E5%88%86%E6%9C%AA%E8%AE%BE%E7%BD%AE-%E6%98%BE%E5%BC%8F%E8%AE%BE%E7%BD%AE%E5%92%8C%E5%8A%A8%E6%80%81%E7%A7%BB%E9%99%A4" data-level="3">2.5 rawProps 能区分未设置、显式设置和动态移除</a>
+<a href="#2-6-%E6%9C%80%E7%BB%88%E6%A0%B9%E5%9B%A0" data-level="3">2.6 最终根因</a>
+<a href="#%E7%AC%AC%E4%B8%89%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3%E6%AD%A4%E9%97%AE%E9%A2%98" data-level="2">第三部分：当前方案如何解决此问题</a>
+<a href="#3-1-%E5%9C%A8%E9%B8%BF%E8%92%99-scrollview-%E7%BB%84%E4%BB%B6%E5%AE%9E%E4%BE%8B%E5%B1%82%E8%A1%A5%E9%BD%90%E9%BB%98%E8%AE%A4%E8%AF%AD%E4%B9%89" data-level="3">3.1 在鸿蒙 ScrollView 组件实例层补齐默认语义</a>
+<a href="#3-2-%E6%98%BE%E5%BC%8F%E6%95%B0%E5%80%BC%E4%B8%8D%E4%BC%9A%E8%A2%AB%E8%AF%AF%E5%88%A4%E4%B8%BA%E9%BB%98%E8%AE%A4%E5%80%BC" data-level="3">3.2 显式数值不会被误判为默认值</a>
+<a href="#3-3-%E5%8A%A8%E6%80%81%E7%A7%BB%E9%99%A4%E5%B1%9E%E6%80%A7%E6%97%B6%E6%81%A2%E5%A4%8D-harmony-%E9%BB%98%E8%AE%A4%E5%80%BC" data-level="3">3.3 动态移除属性时恢复 Harmony 默认值</a>
+<a href="#3-4-%E4%BF%AE%E6%94%B9%E5%89%8D%E5%90%8E%E7%BB%93%E6%9E%9C" data-level="3">3.4 修改前后结果</a>
+<a href="#3-5-%E5%AF%B9%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA%E5%92%8C%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D" data-level="3">3.5 对原有行为和性能的影响</a>
+<a href="#3-6-%E9%AA%8C%E8%AF%81%E5%9C%BA%E6%99%AF" data-level="3">3.6 验证场景</a>
+<a href="#3-7-%E5%BD%93%E5%89%8D%E9%AA%8C%E8%AF%81%E7%BB%93%E6%9E%9C%E5%92%8C%E8%BE%B9%E7%95%8C" data-level="3">3.7 当前验证结果和边界</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../assets/site.js"></script>
+  </body>
+</html>

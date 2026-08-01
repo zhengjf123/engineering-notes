@@ -26,7 +26,8 @@ engineering-notes/
 │   │   ├── components/
 │   │   │   └── scrollview/
 │   │   └── issues/
-│   │       └── modal-click-no-response.html
+│   │       ├── modal-click-no-response.html
+└── scrollview-friction-default-mismatch.html
 │   └── cpp/
 ├── markdown/
 │   ├── index.md
@@ -40,7 +41,8 @@ engineering-notes/
 │   │   ├── components/
 │   │   │   └── scrollview/
 │   │   └── issues/
-│   │       └── modal-click-no-response.md
+│   │       ├── modal-click-no-response.md
+└── scrollview-friction-default-mismatch.md
 │   └── cpp/
 ├── skills/
 │   └── README.md
@@ -80,6 +82,7 @@ docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html
 当前 RNOH 问题目录包含：
 
 1. Modal 路由切换后点击无响应
+2. ScrollView 摩擦系数默认行为不一致
 
 ## 站点检查
 

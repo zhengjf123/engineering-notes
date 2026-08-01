@@ -22,7 +22,7 @@
         <p class="eyebrow">RNOH / Issues</p>
         <h1>问题</h1>
         <p>沉淀 RNOH 真实问题复盘：现象、复现条件、根因链路、补丁方案和验证边界。</p>
-        <span class="category-count">1 个问题 · Markdown / HTML 双份保存</span>
+        <span class="category-count">2 个问题 · Markdown / HTML 双份保存</span>
       </section>
       <section class="section" aria-labelledby="issues-title">
         <div class="section-heading">
@@ -32,6 +32,10 @@
           <li>
             <div><a href="modal-click-no-response.html">Modal 路由切换后点击无响应</a><p>A 页面 Modal 跳转 B 后仍可见但不可点击；根因是独立 Dialog 的 Modal 错误继承 A 页 pointerEvents，导致触摸在根节点 target-miss。</p></div>
             <span class="path-list__tag">Modal</span>
+          </li>
+          <li>
+            <div><a href="scrollview-friction-default-mismatch.html">ScrollView 摩擦系数默认行为不一致</a><p>PR #2427 漏掉未设置 decelerationRate 的 Harmony 默认语义，导致 ArkUI friction 从 0.75 变为约 0.5。</p></div>
+            <span class="path-list__tag">ScrollView</span>
           </li>
         </ol>
       </section>
