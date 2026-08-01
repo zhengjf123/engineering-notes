@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RNOH 性能问题定位基础指南，覆盖环境固定、线程模型、Trace、React Marker、首帧分析与证据链。">
+    <title>RNOH 性能问题定位指导（基础篇） · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="../../android/index.html">Android</a>
+          <a href="../index.html" aria-current="page">RNOH</a>
+          <a href="../../cpp/index.html">C++</a>
+          <a href="../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="RNOH 性能专题">
+        <div>
+          <p class="side-label">RNOH 性能</p>
+          <nav class="side-nav">
+            <a href="index.html">专题首页</a>
+            <a href="rnoh-performance-issue-localization-guide.html" aria-current="page">性能定位基础篇</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="index.html">性能</a><span aria-hidden="true">/</span>
+          <span>性能定位基础篇</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>RNOH 性能</strong> · Trace、线程模型与证据链</span>
+          <span><a href="../../../markdown/rnoh/performance/rnoh-performance-issue-localization-guide.md">Markdown 源文件</a> · <a href="index.html">返回性能目录</a></span>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="rnoh-性能问题定位指导-基础篇-工具-trace-与证据链">RNOH 性能问题定位指导（基础篇）：工具、Trace 与证据链</h1>
+<h2 id="1-分析前先固定环境"><a class="heading-anchor" href="#1-%E5%88%86%E6%9E%90%E5%89%8D%E5%85%88%E5%9B%BA%E5%AE%9A%E7%8E%AF%E5%A2%83" aria-label="链接到本节">#</a>1. 分析前先固定环境</h2>
+<h3 id="1-1-性能结论必须基于生产形态"><a class="heading-anchor" href="#1-1-%E6%80%A7%E8%83%BD%E7%BB%93%E8%AE%BA%E5%BF%85%E9%A1%BB%E5%9F%BA%E4%BA%8E%E7%94%9F%E4%BA%A7%E5%BD%A2%E6%80%81" aria-label="链接到本节">#</a>1.1 性能结论必须基于生产形态</h3>
+<p>RNOH 公开文档要求使用 Release HAP 和生产模式 Bundle 进行性能调优：</p>
+<div class="code-frame"><span class="code-frame__label">bash</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-bash">npm run codegen &amp;&amp; react-native bundle-harmony --dev=false --minify=true</code></pre></div>
+<p>同时在 DevEco Studio 中将 Build Mode 切换为 <code>release</code>。如工程配置了 <code>LOG_VERBOSITY_LEVEL</code>，性能测试时可按公开文档将其设置为 <code>0</code> 或关闭不必要的日志。</p>
+<p>可通过以下现象辅助排查是否误用了开发环境：</p>
+<ul>
+<li>断开 Metro 后应用无法正常展示，说明应用仍依赖 Metro 加载。</li>
+<li>Bundle 内容仍具有明显可读性，可能没有使用 <code>dev=false</code> 的生产打包方式。</li>
+<li>运行时输出大量调试日志，可能使用了 Debug/Default 构建或未关闭详细日志。</li>
+</ul>
+<blockquote>
+<p>说明：Debug 构建可用于获取额外调用栈或调试信息，但不能直接替代 Release 构建的最终性能结论。若在 Debug 环境中发现可疑函数，应回到相同场景的 Release 构建中复核问题是否仍然存在。</p>
+</blockquote>
+<h3 id="1-2-每次采集至少记录以下信息"><a class="heading-anchor" href="#1-2-%E6%AF%8F%E6%AC%A1%E9%87%87%E9%9B%86%E8%87%B3%E5%B0%91%E8%AE%B0%E5%BD%95%E4%BB%A5%E4%B8%8B%E4%BF%A1%E6%81%AF" aria-label="链接到本节">#</a>1.2 每次采集至少记录以下信息</h3>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>必填信息</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RNOH</td>
+<td>版本号、分支或制品版本</td>
+</tr>
+<tr>
+<td>系统</td>
+<td>HarmonyOS/OpenHarmony 版本、API Level</td>
+</tr>
+<tr>
+<td>工具</td>
+<td>DevEco Studio、Profiler 或 SmartPerf 版本</td>
+</tr>
+<tr>
+<td>设备</td>
+<td>型号、刷新率、是否真机</td>
+</tr>
+<tr>
+<td>构建</td>
+<td>Release/Debug、Bundle 的 <code>dev</code> 与 <code>minify</code> 配置、JS 引擎</td>
+</tr>
+<tr>
+<td>场景</td>
+<td>页面、入口、操作步骤、数据量、是否首次进入</td>
+</tr>
+<tr>
+<td>采集</td>
+<td>起止时刻、是否冷启动、是否预热、Trace 文件名</td>
+</tr>
+</tbody></table>
+<p>没有这些信息的 Trace 难以复现，也无法与其他样本进行可靠比较。</p>
+<h3 id="1-3-固定复现脚本"><a class="heading-anchor" href="#1-3-%E5%9B%BA%E5%AE%9A%E5%A4%8D%E7%8E%B0%E8%84%9A%E6%9C%AC" aria-label="链接到本节">#</a>1.3 固定复现脚本</h3>
+<ol>
+<li>明确问题开始和结束的用户动作，例如“点击列表第 3 项，到详情页首屏内容出现”。</li>
+<li>冷启动问题在应用启动前开始采集；页面内问题在操作前留出一段上下文。</li>
+<li>使用相同数据、相同入口和相同操作节奏重复采集。</li>
+<li>同时保留问题样本和正常样本。跨设备或跨构建模式的数据不能直接作为唯一对照。</li>
+<li>若采集结果波动明显，先检查场景和环境是否稳定，再讨论框架阶段耗时。</li>
+</ol>
+<hr>
+<h2 id="2-心智模型-先认线程-再认阶段"><a class="heading-anchor" href="#2-%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B-%E5%85%88%E8%AE%A4%E7%BA%BF%E7%A8%8B-%E5%86%8D%E8%AE%A4%E9%98%B6%E6%AE%B5" aria-label="链接到本节">#</a>2. 心智模型：先认线程，再认阶段</h2>
+<h3 id="2-1-rnoh-公开线程模型"><a class="heading-anchor" href="#2-1-rnoh-%E5%85%AC%E5%BC%80%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B" aria-label="链接到本节">#</a>2.1 RNOH 公开线程模型</h3>
+<p>RNOH 架构文档定义了四类任务线程：</p>
+<table>
+<thead>
+<tr>
+<th>线程</th>
+<th>公开职责</th>
+<th>定位时的主要关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MAIN/UI</td>
+<td>ArkUI 组件 CREATE、UPDATE、INSERT、REMOVE、DELETE；组件树管理；TurboModule 业务；交互事件和消息处理</td>
+<td>原生组件创建/更新是否集中；TurboModule 是否占用主线程；UI 刷新前是否存在长任务</td>
+</tr>
+<tr>
+<td>JS</td>
+<td>加载并执行 Bundle；执行 React 业务；创建和更新 ShadowTree；Yoga 布局和文本测量；比较新旧 ShadowTree 并生成 mutations</td>
+<td>JS 业务是否阻塞；布局/文本测量是否集中；Commit/Diff 是否异常放大</td>
+</tr>
+<tr>
+<td>BACKGROUND</td>
+<td>实验性地承接部分布局和 ShadowTree 比较任务</td>
+<td>公开文档明确商用版本不建议开启，不应把它作为默认线程模型</td>
+</tr>
+<tr>
+<td>WORKER</td>
+<td>按配置承载部分 TurboModule 任务</td>
+<td>仅在工程确实配置 Worker 时分析；需要同时关注线程切换和通信开销</td>
+</tr>
+</tbody></table>
+<p>补充规则：</p>
+<ul>
+<li>MAIN/UI 线程在应用中唯一。</li>
+<li>JS 线程与 <code>RNInstance</code> 绑定。多个 <code>RNInstance</code> 会对应多个 JS 线程，分析前必须确认问题 Surface 属于哪一个实例。</li>
+<li>Trace 中还可能出现系统线程、渲染线程、调度线程和线程池。它们不等同于 RNOH 上述四类任务线程。</li>
+<li>FFRT 可作为系统任务调度的观察线索，但不应替代 RNOH 的公开线程模型。没有调用栈、关联 Slice 或上下游事件时，不应仅凭 FFRT 线程上的忙碌片段归因到 RNOH。</li>
+</ul>
+<p><img src="../../../assets/rnoh/performance/rnoh-performance-issue-localization-guide/线程模型-trace.png" alt="RNOH 典型线程 Trace" loading="lazy"></p>
+<p>图 1 典型 RNOH 线程 Trace。示例中包含一个 MAIN 线程和两个 RNOH JS 线程。图片来源：<a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%9E%B6%E6%9E%84%E4%BB%8B%E7%BB%8D.md">RNOH 公开文档《架构介绍》</a>。</p>
+<h3 id="2-2-fabric-渲染流水线"><a class="heading-anchor" href="#2-2-fabric-%E6%B8%B2%E6%9F%93%E6%B5%81%E6%B0%B4%E7%BA%BF" aria-label="链接到本节">#</a>2.2 Fabric 渲染流水线</h3>
+<p>React Native 渲染流水线分为 Render、Commit 和 Mount 三个阶段。</p>
+<p><img src="../../../assets/rnoh/performance/rnoh-performance-issue-localization-guide/渲染三阶段-流程.png" alt="React Native 渲染三阶段" loading="lazy"></p>
+<p>图 2 React Native 渲染流水线的 Render、Commit 和 Mount 三个阶段。图片来源：<a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%B8%B2%E6%9F%93%E4%B8%89%E9%98%B6%E6%AE%B5.md">RNOH 公开文档《渲染三阶段》</a>。</p>
+<h4 id="render">Render</h4>
+<ul>
+<li>React 在 JavaScript 中执行业务逻辑并创建 React 元素树。</li>
+<li>React 元素通过 JSI 与 RN Common 交互，在 C++ 中创建 React Shadow Tree。</li>
+<li>在 RNOH 中，这部分主要从 JS 线程观察。</li>
+</ul>
+<h4 id="commit">Commit</h4>
+<ul>
+<li>ShadowTree 构建完成后进入提交。</li>
+<li>Yoga 负责 UI 组件布局。</li>
+<li>文本布局通过 <code>TextMeasurer::measure()</code> 回调到原生侧完成，结果再返回 Yoga。</li>
+<li>新旧 ShadowTree 通过 <code>calculateShadowViewMutationsV2()</code> 计算差异并生成 mutations。</li>
+<li>差异结果被提交到 MAIN/UI 线程。</li>
+</ul>
+<h4 id="mount">Mount</h4>
+<ul>
+<li>MAIN/UI 线程处理 mutations。</li>
+<li><code>MountingManagerCAPI::handleMutation()</code> 处理 <code>CREATE</code>、<code>DELETE</code>、<code>UPDATE</code>、<code>INSERT</code>、<code>REMOVE</code> 等操作。</li>
+<li><code>CREATE</code> 创建 ArkUI Node；<code>INSERT</code> 将 Node 挂到组件树；<code>UPDATE</code> 更新 Node 属性；<code>REMOVE</code> 将 Node 从组件树移除；<code>DELETE</code> 删除 Node。</li>
+<li>Mount 完成不等于屏幕像素已经展示。还应继续观察 ArkUI/系统刷新链路。</li>
+</ul>
+<h3 id="2-3-从线程与阶段建立最小映射"><a class="heading-anchor" href="#2-3-%E4%BB%8E%E7%BA%BF%E7%A8%8B%E4%B8%8E%E9%98%B6%E6%AE%B5%E5%BB%BA%E7%AB%8B%E6%9C%80%E5%B0%8F%E6%98%A0%E5%B0%84" aria-label="链接到本节">#</a>2.3 从线程与阶段建立最小映射</h3>
+<table>
+<thead>
+<tr>
+<th>观察位置</th>
+<th>可支持的判断</th>
+<th>不能单独支持的判断</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RNOH_JS 长时间连续执行</td>
+<td>JS 线程在该时间窗内有较重任务</td>
+<td>不能仅凭线程忙判断具体是业务 JS、布局、文本测量还是 Diff</td>
+</tr>
+<tr>
+<td><code>TextMeasurer::measure()</code> 大量或累计耗时上升</td>
+<td>文本测量是 Commit 时间窗中的重要组成</td>
+<td>不能仅凭一次调用认定文本组件存在缺陷</td>
+</tr>
+<tr>
+<td><code>calculateShadowViewMutationsV2()</code> 耗时或 mutations 规模增长</td>
+<td>新旧 ShadowTree 差异计算和变更规模需要关注</td>
+<td>不能直接等同于 ArkUI 绘制慢</td>
+</tr>
+<tr>
+<td>MAIN/UI 上集中处理 mutations</td>
+<td>原生组件创建、更新或树操作占用主线程</td>
+<td>不能仅凭 Mount 片段认定最终绘制阶段是根因</td>
+</tr>
+<tr>
+<td><code>FlushVsync</code> 晚于预期出现</td>
+<td>最终刷新时机被推迟，需要向前回溯关键路径</td>
+<td>不能只看 <code>FlushVsync</code> 名称确定延迟来自 RNOH 还是系统其他任务</td>
+</tr>
+<tr>
+<td>Trace 时间轴存在空白</td>
+<td>当前启用的 Trace 类别没有记录到 Slice</td>
+<td>空白不等于线程空闲；公开首帧示例明确存在未打点的 <code>ComponentInstance</code> 创建阶段</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="3-基础工具箱"><a class="heading-anchor" href="#3-%E5%9F%BA%E7%A1%80%E5%B7%A5%E5%85%B7%E7%AE%B1" aria-label="链接到本节">#</a>3. 基础工具箱</h2>
+<h3 id="3-1-工具选择表"><a class="heading-anchor" href="#3-1-%E5%B7%A5%E5%85%B7%E9%80%89%E6%8B%A9%E8%A1%A8" aria-label="链接到本节">#</a>3.1 工具选择表</h3>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>首选工具</th>
+<th>主要证据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>首帧、页面跳转、响应延迟、丢帧</td>
+<td>DevEco Studio Profiler / SmartPerf Trace</td>
+<td>线程运行、调度、RNOH Slice、ArkUI/系统刷新时间窗</td>
+</tr>
+<tr>
+<td>React/Fabric 生命周期分段</td>
+<td>React Marker</td>
+<td>Bundle、Context、Instance、Fabric Commit/Layout/Diff/Update UI 等成对标记</td>
+</tr>
+<tr>
+<td>业务代码缺少边界</td>
+<td>JS/ArkTS/C++ 自定义 Trace</td>
+<td>用户动作、业务任务、跨层调用的开始与结束</td>
+</tr>
+<tr>
+<td>错误和告警与卡顿同时发生</td>
+<td>DevEco Studio HiLog</td>
+<td>应用日志、时间戳、Warn/Error</td>
+</tr>
+<tr>
+<td>组件属性或组件树异常</td>
+<td>ArkUI Inspector</td>
+<td>组件树、属性、布局信息</td>
+</tr>
+<tr>
+<td>组件级候选定位</td>
+<td>React DevTools（开发环境辅助）</td>
+<td>组件和调试信息；最终性能结论仍需 Release Trace 复核</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>工具界面和采集能力会随 DevEco Studio、SDK 和设备版本变化。本文只固定分析方法，不固定所有菜单名称和命令参数。</p>
+</blockquote>
+<h3 id="3-2-deveco-studio-profiler"><a class="heading-anchor" href="#3-2-deveco-studio-profiler" aria-label="链接到本节">#</a>3.2 DevEco Studio Profiler</h3>
+<p>RNOH 公开性能文档推荐使用 DevEco Studio Profiler 分析应用性能。建议按以下顺序使用：</p>
+<ol>
+<li>连接与目标版本匹配的真机。</li>
+<li>选择目标应用和目标进程。</li>
+<li>根据问题类型选择当前版本 Profiler 提供的分析任务。</li>
+<li>在复现动作前开始记录，在问题结束后停止记录。</li>
+<li>先定位问题时间窗，再展开对应线程、Slice 和调用栈。</li>
+<li>导出原始会话或 Trace，并与环境信息一并保存。</li>
+</ol>
+<p>不要一开始就放大到单个函数。先确认问题发生在哪个进程、线程和阶段。</p>
+<h3 id="3-3-smartperf"><a class="heading-anchor" href="#3-3-smartperf" aria-label="链接到本节">#</a>3.3 SmartPerf</h3>
+<p>RNOH 公开文档使用 SmartPerf 打开 Trace，并通过搜索 Slice 名称定位 RNOH 线程和关键阶段。典型操作包括：</p>
+<ol>
+<li>打开采集到的 Trace。</li>
+<li>定位应用进程。</li>
+<li>展开 MAIN/UI 和 <code>RNOH_JS</code> 线程。</li>
+<li>使用 <code>loadBundle</code>、<code>ShadowTree::commit</code> 或 React Marker 名称搜索目标时间窗。</li>
+<li>结合 ArkUI/系统刷新事件检查端到端关键路径。</li>
+</ol>
+<p>命令行采集参数可能随系统版本变化。对外文档不固化一组未经版本匹配验证的 <code>hitrace</code> 参数；使用命令行采集时，应以目标设备的 <code>hitrace --help</code> 和对应 HarmonyOS 官方文档为准。</p>
+<h3 id="3-4-hilog"><a class="heading-anchor" href="#3-4-hilog" aria-label="链接到本节">#</a>3.4 HiLog</h3>
+<p>DevEco Studio 中可在 Log/HiLog 窗口选择设备、应用和日志级别。性能分析时建议：</p>
+<ul>
+<li>使用应用包名或进程过滤，避免无关日志淹没时间窗。</li>
+<li>保留 Warn/Error 以及与复现动作有关的业务日志。</li>
+<li>记录日志时间戳，并与 Trace 的问题时间窗对齐。</li>
+<li>Release 性能复核中避免为了“看得更多”长期打开大量详细日志。</li>
+</ul>
+<p>日志可以解释事件和异常，但日志行之间的时间差不能替代 Trace 的线程执行证据。</p>
+<h3 id="3-5-arkui-inspector"><a class="heading-anchor" href="#3-5-arkui-inspector" aria-label="链接到本节">#</a>3.5 ArkUI Inspector</h3>
+<p>当性能问题伴随组件数量异常、属性异常或布局异常时，可使用 ArkUI Inspector 检查组件树和属性。它适合回答“页面实际创建了哪些节点”和“节点属性是否符合预期”，但不直接替代 Trace 的耗时分析。</p>
+<h3 id="3-6-react-devtools-的使用边界"><a class="heading-anchor" href="#3-6-react-devtools-%E7%9A%84%E4%BD%BF%E7%94%A8%E8%BE%B9%E7%95%8C" aria-label="链接到本节">#</a>3.6 React DevTools 的使用边界</h3>
+<p>RNOH 公开文档说明，可在开发过程中使用 React DevTools 辅助调试。对性能问题，可将组件级调试结果作为候选线索，但应遵守：</p>
+<ul>
+<li>不将 Dev 环境中的组件耗时直接当作 Release 性能数据。</li>
+<li>不因组件发生 Render 就认定该 Render 是卡顿根因。</li>
+<li>将候选组件或用户动作通过自定义 Trace 标记后，在 Release Trace 中复核。</li>
+</ul>
+<p>本文不把 RN 内置 Perf Monitor、Hermes CPU Sampling 或 Chrome Memory 面板作为 RNOH 的必选流程。使用此类工具时，应以目标 RNOH 版本、JS 引擎及其公开文档为准，并在目标设备上验证工具的可用性。</p>
+<hr>
+<h2 id="4-如何添加可关联的-trace"><a class="heading-anchor" href="#4-%E5%A6%82%E4%BD%95%E6%B7%BB%E5%8A%A0%E5%8F%AF%E5%85%B3%E8%81%94%E7%9A%84-trace" aria-label="链接到本节">#</a>4. 如何添加可关联的 Trace</h2>
+<p>当系统 Trace 无法区分业务步骤时，应优先补充边界清晰、名称稳定的自定义 Trace。</p>
+<h3 id="4-1-js-侧"><a class="heading-anchor" href="#4-1-js-%E4%BE%A7" aria-label="链接到本节">#</a>4.1 JS 侧</h3>
+<p>RNOH 公开调试文档支持使用 React Native 的 <code>Systrace</code>：</p>
+<div class="code-frame"><span class="code-frame__label">javascript</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-javascript">import {Systrace} from 'react-native';
+
+function onPress() {
+  Systrace.beginEvent('ProductList:onPressOpenDetail');
+  try {
+    openDetail();
+  } finally {
+    Systrace.endEvent();
+  }
+}</code></pre></div>
+<p>异步任务应使用成对的异步 Trace，并确保开始与结束使用同一个标识。名称建议包含“模块:动作”，不要写入用户隐私、账号、URL 参数等动态数据。</p>
+<h3 id="4-2-arkts-侧"><a class="heading-anchor" href="#4-2-arkts-%E4%BE%A7" aria-label="链接到本节">#</a>4.2 ArkTS 侧</h3>
+<p>使用 RNOH Logger 封装：</p>
+<div class="code-frame"><span class="code-frame__label">typescript</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-typescript">const stopTracing = this.logger
+  .clone(&quot;ProductDetail:prepareNativeData&quot;)
+  .startTracing();
+try {
+  // do something
+} finally {
+  stopTracing();
+}</code></pre></div>
+<p>也可使用系统 <code>@ohos.hiTraceMeter</code>：</p>
+<div class="code-frame"><span class="code-frame__label">typescript</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-typescript">import hiTrace from '@ohos.hiTraceMeter';
+
+hiTrace.startTrace('ProductDetail:prepareNativeData', 0);
+try {
+  // do something
+} finally {
+  hiTrace.finishTrace('ProductDetail:prepareNativeData', 0);
+}</code></pre></div>
+<h3 id="4-3-c-侧"><a class="heading-anchor" href="#4-3-c-%E4%BE%A7" aria-label="链接到本节">#</a>4.3 C++ 侧</h3>
+<p>使用 <code>facebook::react::SystraceSection</code>，Trace 范围与对象作用域一致：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">#include &lt;react/renderer/debug/SystraceSection.h&gt;
+
+void prepareData() {
+  facebook::react::SystraceSection trace(&quot;ProductDetail:prepareData&quot;);
+  // do something
+}</code></pre></div>
+<h3 id="4-4-自定义-trace-的命名规则"><a class="heading-anchor" href="#4-4-%E8%87%AA%E5%AE%9A%E4%B9%89-trace-%E7%9A%84%E5%91%BD%E5%90%8D%E8%A7%84%E5%88%99" aria-label="链接到本节">#</a>4.4 自定义 Trace 的命名规则</h3>
+<ul>
+<li>使用稳定、可搜索的名称，例如 <code>Module:Action</code>。</li>
+<li>同步 Trace 必须保证异常路径也能结束。</li>
+<li>异步 Trace 必须保证标识唯一并成对结束。</li>
+<li>不在高频循环中无条件添加大量细粒度 Trace，以免增加采集开销和阅读噪声。</li>
+<li>记录代码版本，避免同名 Trace 在不同版本中表达不同含义。</li>
+</ul>
+<hr>
+<h2 id="5-react-marker-使用公开的生命周期边界"><a class="heading-anchor" href="#5-react-marker-%E4%BD%BF%E7%94%A8%E5%85%AC%E5%BC%80%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E8%BE%B9%E7%95%8C" aria-label="链接到本节">#</a>5. React Marker：使用公开的生命周期边界</h2>
+<h3 id="5-1-开启方式"><a class="heading-anchor" href="#5-1-%E5%BC%80%E5%90%AF%E6%96%B9%E5%BC%8F" aria-label="链接到本节">#</a>5.1 开启方式</h3>
+<p>RNOH 公开文档说明，React Marker 默认不记录到 Trace。开启方式是在应用 CMake 配置中、<code>add_subdirectory</code> 之前添加：</p>
+<div class="code-frame"><span class="code-frame__label">cmake</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cmake">add_compile_definitions(WITH_HITRACE_REACT_MARKER=ON)</code></pre></div>
+<p>启动场景应在应用启动前开始采集。打开 Trace 后，在目标应用进程中查看 React Marker。</p>
+<h3 id="5-2-与性能定位最相关的-marker"><a class="heading-anchor" href="#5-2-%E4%B8%8E%E6%80%A7%E8%83%BD%E5%AE%9A%E4%BD%8D%E6%9C%80%E7%9B%B8%E5%85%B3%E7%9A%84-marker" aria-label="链接到本节">#</a>5.2 与性能定位最相关的 Marker</h3>
+<table>
+<thead>
+<tr>
+<th>Marker 对</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RUN_JS_BUNDLE_START/STOP</code></td>
+<td>JS Bundle 运行开始/结束</td>
+</tr>
+<tr>
+<td><code>CREATE_REACT_CONTEXT_START/STOP</code></td>
+<td>React Context 创建开始/结束</td>
+</tr>
+<tr>
+<td><code>REACT_INSTANCE_INIT_START/STOP</code></td>
+<td>React 实例初始化开始/结束</td>
+</tr>
+<tr>
+<td><code>NATIVE_MODULE_SETUP_START/STOP</code></td>
+<td>原生模块初始化开始/结束</td>
+</tr>
+<tr>
+<td><code>CONTENT_APPEARED</code></td>
+<td>内容已经渲染并展示</td>
+</tr>
+<tr>
+<td><code>FABRIC_COMMIT_START/END</code></td>
+<td>Fabric Commit 开始/结束</td>
+</tr>
+<tr>
+<td><code>FABRIC_LAYOUT_START/END</code></td>
+<td>Fabric Layout 开始/结束</td>
+</tr>
+<tr>
+<td><code>FABRIC_DIFF_START/END</code></td>
+<td>Fabric Diff 开始/结束</td>
+</tr>
+<tr>
+<td><code>FABRIC_FINISH_TRANSACTION_START/END</code></td>
+<td>Fabric 完成事务开始/结束</td>
+</tr>
+<tr>
+<td><code>FABRIC_BATCH_EXECUTION_START/END</code></td>
+<td>Fabric 批处理执行开始/结束</td>
+</tr>
+<tr>
+<td><code>FABRIC_UPDATE_UI_MAIN_THREAD_START/END</code></td>
+<td>Fabric 在主线程更新 UI 开始/结束</td>
+</tr>
+</tbody></table>
+<p>Trace 上的显示名称可能合并 START/STOP，例如公开文档示例将 <code>RUN_JS_BUNDLE_START/STOP</code> 显示为 <code>H:ReactMarker::RUN_JS_BUNDLE::tag::&lt;message&gt;</code> 的时间段。应以目标版本实际 Trace 为准，不要只按字符串机械匹配。</p>
+<p><img src="../../../assets/rnoh/performance/rnoh-performance-issue-localization-guide/ReactMarker-trace.png" alt="React Marker Trace 示例" loading="lazy"></p>
+<p>图 3 React Marker Trace 示例。图片来源：<a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98.md">RNOH 公开文档《性能调优》</a>。</p>
+<h3 id="5-3-如何用-marker-缩小范围"><a class="heading-anchor" href="#5-3-%E5%A6%82%E4%BD%95%E7%94%A8-marker-%E7%BC%A9%E5%B0%8F%E8%8C%83%E5%9B%B4" aria-label="链接到本节">#</a>5.3 如何用 Marker 缩小范围</h3>
+<ol>
+<li>先找到端到端问题时间窗。</li>
+<li>使用成对 Marker 将时间窗切分为 Bundle、Context/Instance、Commit、Layout、Diff、Update UI 等阶段。</li>
+<li>找出相较正常样本明显增长的阶段。</li>
+<li>在该阶段内继续使用函数 Slice、调用栈、自定义 Trace 或业务日志缩小范围。</li>
+<li>若 Marker 之间存在空白，不直接判定线程空闲；检查调度状态、调用栈和是否存在未打点工作。</li>
+</ol>
+<p>Marker 用于分段，不等同于根因。</p>
+<hr>
+<h2 id="6-rnoh-关键-trace-点解读"><a class="heading-anchor" href="#6-rnoh-%E5%85%B3%E9%94%AE-trace-%E7%82%B9%E8%A7%A3%E8%AF%BB" aria-label="链接到本节">#</a>6. RNOH 关键 Trace 点解读</h2>
+<h3 id="6-1-bundle-与实例初始化"><a class="heading-anchor" href="#6-1-bundle-%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%9D%E5%A7%8B%E5%8C%96" aria-label="链接到本节">#</a>6.1 Bundle 与实例初始化</h3>
+<table>
+<thead>
+<tr>
+<th>Trace/Marker</th>
+<th>线程或位置</th>
+<th>可以回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>loadBundle</code></td>
+<td><code>RNOH_JS</code></td>
+<td>Bundle 加载和执行所在时间窗</td>
+</tr>
+<tr>
+<td><code>RUN_JS_BUNDLE_START/STOP</code></td>
+<td>React Marker</td>
+<td>JS Bundle 运行边界</td>
+</tr>
+<tr>
+<td><code>CREATE_REACT_CONTEXT_START/STOP</code></td>
+<td>React Marker</td>
+<td>React Context 创建边界</td>
+</tr>
+<tr>
+<td><code>REACT_INSTANCE_INIT_START/STOP</code></td>
+<td>React Marker</td>
+<td>React 实例初始化边界</td>
+</tr>
+<tr>
+<td><code>NATIVE_MODULE_SETUP_START/STOP</code></td>
+<td>React Marker</td>
+<td>原生模块初始化边界</td>
+</tr>
+</tbody></table>
+<p>若页面问题发生在 <code>loadBundle</code> 结束之后，不应继续把全部页面耗时归为 Bundle 加载；需要进入 Render/Commit/Mount 分析。</p>
+<h3 id="6-2-render-阶段"><a class="heading-anchor" href="#6-2-render-%E9%98%B6%E6%AE%B5" aria-label="链接到本节">#</a>6.2 Render 阶段</h3>
+<p>关注用户动作后的 JS 业务执行、React 元素创建和 ShadowTree 构建。公开首帧示例中可看到 <code>cloneNode</code> 等构造节点树相关操作。</p>
+<p>判断方法：</p>
+<ul>
+<li>JS 线程长时间连续运行时，先确定业务自定义 Trace 与 Fabric Marker 的相对位置。</li>
+<li>如果长耗时位于 Fabric Marker 之前，更可能需要检查业务 JS 或 React 元素创建。</li>
+<li>如果缺少足够的函数 Slice，增加业务级 Trace 后复现，不依赖猜测。</li>
+</ul>
+<h3 id="6-3-commit-layout-与-diff"><a class="heading-anchor" href="#6-3-commit-layout-%E4%B8%8E-diff" aria-label="链接到本节">#</a>6.3 Commit、Layout 与 Diff</h3>
+<table>
+<thead>
+<tr>
+<th>Trace/Marker</th>
+<th>含义</th>
+<th>进一步检查</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ShadowTree::commit</code></td>
+<td>ShadowTree 提交时间窗</td>
+<td>与用户动作和首帧/刷新时机的关系</td>
+</tr>
+<tr>
+<td><code>TextMeasurer::measure()</code></td>
+<td>文本布局测量</td>
+<td>调用次数、累计耗时、文本节点规模</td>
+</tr>
+<tr>
+<td><code>calculateShadowViewMutationsV2()</code></td>
+<td>新旧 ShadowTree Diff</td>
+<td>mutations 规模、是否由一次状态更新引发大量变更</td>
+</tr>
+<tr>
+<td><code>FABRIC_COMMIT_*</code></td>
+<td>Commit 边界</td>
+<td>Commit 相对正常样本是否增长</td>
+</tr>
+<tr>
+<td><code>FABRIC_LAYOUT_*</code></td>
+<td>Layout 边界</td>
+<td>布局是否为主要增长阶段</td>
+</tr>
+<tr>
+<td><code>FABRIC_DIFF_*</code></td>
+<td>Diff 边界</td>
+<td>Diff 是否为主要增长阶段</td>
+</tr>
+</tbody></table>
+<p>不要只看单次函数耗时。调用次数增加、单次耗时增加和上游组件规模增加对应不同的定位方向。</p>
+<h3 id="6-4-mount-阶段"><a class="heading-anchor" href="#6-4-mount-%E9%98%B6%E6%AE%B5" aria-label="链接到本节">#</a>6.4 Mount 阶段</h3>
+<p><code>MountingManagerCAPI::handleMutation()</code> 处理：</p>
+<ul>
+<li><code>CREATE</code></li>
+<li><code>DELETE</code></li>
+<li><code>UPDATE</code></li>
+<li><code>INSERT</code></li>
+<li><code>REMOVE</code></li>
+</ul>
+<p>定位时同时观察：</p>
+<ul>
+<li>mutations 的数量和类型。</li>
+<li>MAIN/UI 线程是否集中创建或更新大量组件。</li>
+<li><code>FABRIC_UPDATE_UI_MAIN_THREAD_START/END</code> 和 <code>FABRIC_BATCH_EXECUTION_START/END</code> 的时间窗。</li>
+<li>Mount 前后是否还有其他主线程长任务。</li>
+<li>ArkUI/系统刷新是否及时跟上。</li>
+</ul>
+<p>Mount 慢与最终绘制慢是两个不同层次。只有在证据表明耗时集中于 Mount，且下游刷新没有更大异常时，才能把主要问题归到 RNOH 原生挂载阶段。</p>
+<h3 id="6-5-turbomodule-与跨线程调用"><a class="heading-anchor" href="#6-5-turbomodule-%E4%B8%8E%E8%B7%A8%E7%BA%BF%E7%A8%8B%E8%B0%83%E7%94%A8" aria-label="链接到本节">#</a>6.5 TurboModule 与跨线程调用</h3>
+<p>公开架构文档指出，默认情况下 ArkTS TurboModule 业务会使用 MAIN/UI 线程；配置 Worker 后，部分 TurboModule 可运行在 Worker。</p>
+<p>定位原则：</p>
+<ul>
+<li>MAIN/UI 上的 TurboModule 长任务会与 UI 工作竞争主线程时间。</li>
+<li>JS 发起同步调用后出现等待时，等待片段只是现象。应继续找到被调用线程实际执行的任务和返回时刻。</li>
+<li>不能仅凭“同步”二字直接建议改为异步。接口语义、调用顺序和线程安全必须先满足。</li>
+<li>只有工程实际配置了 Worker，才能按 Worker 场景分析；不要假设所有 TurboModule 都在子线程。</li>
+</ul>
+<h3 id="6-6-arkui-与最终刷新"><a class="heading-anchor" href="#6-6-arkui-%E4%B8%8E%E6%9C%80%E7%BB%88%E5%88%B7%E6%96%B0" aria-label="链接到本节">#</a>6.6 ArkUI 与最终刷新</h3>
+<p>公开首帧示例使用主线程上的 <code>FlushVsync</code> 观察最终刷新操作。它可作为端到端时间窗的重要锚点，但不代表其自身一定是根因。</p>
+<p>如果 <code>FlushVsync</code> 晚：</p>
+<ol>
+<li>向前检查 MAIN/UI 是否被 mutations、TurboModule 或其他任务占用。</li>
+<li>检查 RNOH_JS 是否延迟提交了 mutations。</li>
+<li>检查 ArkUI/系统相关 Slice 和调度状态。</li>
+<li>使用正常样本确认延迟首先从哪个阶段开始出现。</li>
+</ol>
+<hr>
+<h2 id="7-一次完整的首帧-trace-解读"><a class="heading-anchor" href="#7-%E4%B8%80%E6%AC%A1%E5%AE%8C%E6%95%B4%E7%9A%84%E9%A6%96%E5%B8%A7-trace-%E8%A7%A3%E8%AF%BB" aria-label="链接到本节">#</a>7. 一次完整的首帧 Trace 解读</h2>
+<p>RNOH 公开性能文档给出了以下首帧观察顺序：</p>
+<ol>
+<li><code>loadBundle</code> 在 <code>RNOH_JS</code> 线程上完成。</li>
+<li><code>RNOH_JS</code> 上出现 <code>cloneNode</code> 等节点树构造操作。</li>
+<li>出现 <code>ShadowTree::commit</code>，完成渲染流程中的提交。</li>
+<li>随后存在 <code>ComponentInstance</code> 创建阶段。公开示例特别说明：该时间段即使没有 Trace Slice，也不代表线程空闲。</li>
+<li>MAIN/UI 线程出现 <code>FlushVsync</code>，系统执行最终刷新相关操作。</li>
+</ol>
+<p><img src="../../../assets/rnoh/performance/rnoh-performance-issue-localization-guide/首帧-trace.png" alt="RNOH 首帧 Trace 示例" loading="lazy"></p>
+<p>图 4 RNOH 首帧 Trace 示例。图片来源：<a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98.md">RNOH 公开文档《性能调优》</a>。</p>
+<h3 id="7-1-建议的逐层分析法"><a class="heading-anchor" href="#7-1-%E5%BB%BA%E8%AE%AE%E7%9A%84%E9%80%90%E5%B1%82%E5%88%86%E6%9E%90%E6%B3%95" aria-label="链接到本节">#</a>7.1 建议的逐层分析法</h3>
+<h4 id="第一层-端到端">第一层：端到端</h4>
+<p>明确起点和终点：</p>
+<ul>
+<li>起点可以是应用启动、点击事件或自定义业务 Trace。</li>
+<li>终点可以是 <code>CONTENT_APPEARED</code>、业务定义的内容完成标记，或经场景验证的最终刷新时机。</li>
+</ul>
+<p>不同口径不能混用。<code>mount</code>、<code>onLayout</code>、<code>CONTENT_APPEARED</code> 和真正可见内容表达的业务含义不完全相同。</p>
+<h4 id="第二层-分线程">第二层：分线程</h4>
+<ul>
+<li>JS 线程何时开始工作、何时提交。</li>
+<li>MAIN/UI 线程何时收到并处理 mutations。</li>
+<li>最终刷新何时发生。</li>
+<li>是否有其他线程上的工作位于关键路径。</li>
+</ul>
+<h4 id="第三层-分阶段">第三层：分阶段</h4>
+<p>使用 React Marker、公开函数 Slice 和自定义 Trace切分：</p>
+<p><code>Bundle/初始化 -&gt; Render -&gt; Commit/Layout/Diff -&gt; Mount/Update UI -&gt; ArkUI/系统刷新</code></p>
+<h4 id="第四层-找首个异常点">第四层：找首个异常点</h4>
+<p>与同环境正常样本比较，找出最早开始偏离的阶段。下游变慢可能只是上游延迟的结果。</p>
+<h4 id="第五层-验证归因">第五层：验证归因</h4>
+<p>围绕候选原因做单变量实验，例如减少一次提交的节点数量、移除一个已确认的长任务或调整调用时机。重新采集后，只有候选 Slice 和端到端指标同时按预期变化，归因才得到增强。</p>
+<hr>
+<h2 id="8-时间预算与基线"><a class="heading-anchor" href="#8-%E6%97%B6%E9%97%B4%E9%A2%84%E7%AE%97%E4%B8%8E%E5%9F%BA%E7%BA%BF" aria-label="链接到本节">#</a>8. 时间预算与基线</h2>
+<h3 id="8-1-不使用统一的阶段-正常范围"><a class="heading-anchor" href="#8-1-%E4%B8%8D%E4%BD%BF%E7%94%A8%E7%BB%9F%E4%B8%80%E7%9A%84%E9%98%B6%E6%AE%B5-%E6%AD%A3%E5%B8%B8%E8%8C%83%E5%9B%B4" aria-label="链接到本节">#</a>8.1 不使用统一的阶段“正常范围”</h3>
+<p>不建议使用以下形式的固定表格：</p>
+<table>
+<thead>
+<tr>
+<th>不推荐做法</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>“JS Commit 正常为 2-8 ms”</td>
+<td>页面复杂度、设备、版本和场景不同，无法作为通用 RNOH 标准</td>
+</tr>
+<tr>
+<td>“文本测量超过 3 ms 就异常”</td>
+<td>应同时看调用次数、文本规模、缓存和端到端影响</td>
+</tr>
+<tr>
+<td>“Mount 超过 6 ms 就是框架问题”</td>
+<td>mutations 数量和类型由上游页面更新决定，且下游系统刷新也可能耗时</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-推荐的判断方式"><a class="heading-anchor" href="#8-2-%E6%8E%A8%E8%8D%90%E7%9A%84%E5%88%A4%E6%96%AD%E6%96%B9%E5%BC%8F" aria-label="链接到本节">#</a>8.2 推荐的判断方式</h3>
+<ol>
+<li><strong>同环境对照</strong>：问题样本与正常样本使用相同设备、版本、构建和数据。</li>
+<li><strong>端到端优先</strong>：先确认用户可感知指标是否异常，再分析阶段占比。</li>
+<li><strong>刷新率换算仅作参考</strong>：理论帧周期为 <code>1000 / 刷新率</code> 毫秒，例如 60 Hz 约为 16.7 ms、120 Hz 约为 8.3 ms。该周期不是任意单个 RNOH Slice 的统一上限。</li>
+<li><strong>关注累计值</strong>：高频短调用的累计耗时可能比一次长调用更重要。</li>
+<li><strong>关注首个偏离点</strong>：从正常样本开始对齐，找出关键路径中最早扩大的阶段。</li>
+<li><strong>多次采集</strong>：报告中说明样本数量、波动和选取依据，不只展示最好或最差的一次。</li>
+</ol>
+<hr>
+<h2 id="9-常见误读与避坑"><a class="heading-anchor" href="#9-%E5%B8%B8%E8%A7%81%E8%AF%AF%E8%AF%BB%E4%B8%8E%E9%81%BF%E5%9D%91" aria-label="链接到本节">#</a>9. 常见误读与避坑</h2>
+<h3 id="9-1-trace-空白等于线程空闲"><a class="heading-anchor" href="#9-1-trace-%E7%A9%BA%E7%99%BD%E7%AD%89%E4%BA%8E%E7%BA%BF%E7%A8%8B%E7%A9%BA%E9%97%B2" aria-label="链接到本节">#</a>9.1 Trace 空白等于线程空闲</h3>
+<p>错误。Trace 只能展示已启用类别和已打点的工作。RNOH 公开首帧示例已明确说明，<code>ComponentInstance</code> 创建可能发生在没有对应 Slice 的时间段。</p>
+<h3 id="9-2-看到-js-等待就认定-js-逻辑慢"><a class="heading-anchor" href="#9-2-%E7%9C%8B%E5%88%B0-js-%E7%AD%89%E5%BE%85%E5%B0%B1%E8%AE%A4%E5%AE%9A-js-%E9%80%BB%E8%BE%91%E6%85%A2" aria-label="链接到本节">#</a>9.2 看到 JS 等待就认定 JS 逻辑慢</h3>
+<p>错误。等待可能表示 JS 正在等待其他线程返回。应找到被调用线程的实际执行片段和返回时刻，再判断根因。</p>
+<h3 id="9-3-看到-main-ui-忙就认定-arkui-绘制慢"><a class="heading-anchor" href="#9-3-%E7%9C%8B%E5%88%B0-main-ui-%E5%BF%99%E5%B0%B1%E8%AE%A4%E5%AE%9A-arkui-%E7%BB%98%E5%88%B6%E6%85%A2" aria-label="链接到本节">#</a>9.3 看到 MAIN/UI 忙就认定 ArkUI 绘制慢</h3>
+<p>错误。MAIN/UI 同时承载 RNOH Mount、ArkUI 组件树操作、默认 TurboModule 业务和交互事件。必须先区分具体 Slice。</p>
+<h3 id="9-4-看到-handlemutation-就认定-rnoh-框架慢"><a class="heading-anchor" href="#9-4-%E7%9C%8B%E5%88%B0-handlemutation-%E5%B0%B1%E8%AE%A4%E5%AE%9A-rnoh-%E6%A1%86%E6%9E%B6%E6%85%A2" aria-label="链接到本节">#</a>9.4 看到 <code>handleMutation</code> 就认定 RNOH 框架慢</h3>
+<p>错误。大量 mutations 可能由上游一次提交大量节点或属性变化触发。应同时检查 mutations 规模、Render/Commit/Diff 和页面更新原因。</p>
+<h3 id="9-5-看到系统线程池忙就认定业务卡顿"><a class="heading-anchor" href="#9-5-%E7%9C%8B%E5%88%B0%E7%B3%BB%E7%BB%9F%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%BF%99%E5%B0%B1%E8%AE%A4%E5%AE%9A%E4%B8%9A%E5%8A%A1%E5%8D%A1%E9%A1%BF" aria-label="链接到本节">#</a>9.5 看到系统线程池忙就认定业务卡顿</h3>
+<p>错误。线程池忙碌只有位于目标时间窗关键路径、且能与业务调用建立关联时，才是有效证据。</p>
+<h3 id="9-6-用-debug-结果替代-release-结论"><a class="heading-anchor" href="#9-6-%E7%94%A8-debug-%E7%BB%93%E6%9E%9C%E6%9B%BF%E4%BB%A3-release-%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>9.6 用 Debug 结果替代 Release 结论</h3>
+<p>错误。Debug、Metro、详细日志和开发 Bundle 会改变性能表现。Debug 可用于补充调用栈，最终结论需要 Release 复核。</p>
+<h3 id="9-7-只凭一次-trace-下结论"><a class="heading-anchor" href="#9-7-%E5%8F%AA%E5%87%AD%E4%B8%80%E6%AC%A1-trace-%E4%B8%8B%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>9.7 只凭一次 Trace 下结论</h3>
+<p>错误。一次采集可能受温度、系统任务、数据状态和操作节奏影响。必须保留可重复样本和对照样本。</p>
+<h3 id="9-8-把相关性写成因果"><a class="heading-anchor" href="#9-8-%E6%8A%8A%E7%9B%B8%E5%85%B3%E6%80%A7%E5%86%99%E6%88%90%E5%9B%A0%E6%9E%9C" aria-label="链接到本节">#</a>9.8 把相关性写成因果</h3>
+<p>“卡顿时出现了某 Slice”只能说明时间相关。更强的因果证据应包括：</p>
+<ul>
+<li>Slice 位于端到端关键路径。</li>
+<li>相较正常样本明显增长。</li>
+<li>上下游时序符合预期。</li>
+<li>单变量实验后，Slice 和用户指标同时改善或退化。</li>
+</ul>
+<hr>
+<h2 id="10-标准定位流程"><a class="heading-anchor" href="#10-%E6%A0%87%E5%87%86%E5%AE%9A%E4%BD%8D%E6%B5%81%E7%A8%8B" aria-label="链接到本节">#</a>10. 标准定位流程</h2>
+<h3 id="步骤-1-定义问题和指标"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-1-%E5%AE%9A%E4%B9%89%E9%97%AE%E9%A2%98%E5%92%8C%E6%8C%87%E6%A0%87" aria-label="链接到本节">#</a>步骤 1：定义问题和指标</h3>
+<p>写清楚用户动作、期望、实际现象、起点和终点。不要只写“页面卡”。</p>
+<h3 id="步骤-2-确认构建与环境"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-2-%E7%A1%AE%E8%AE%A4%E6%9E%84%E5%BB%BA%E4%B8%8E%E7%8E%AF%E5%A2%83" aria-label="链接到本节">#</a>步骤 2：确认构建与环境</h3>
+<p>确认 Release HAP、生产模式 Bundle、日志配置、设备和版本。环境不符合要求时先修正环境。</p>
+<h3 id="步骤-3-稳定复现并采集"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-3-%E7%A8%B3%E5%AE%9A%E5%A4%8D%E7%8E%B0%E5%B9%B6%E9%87%87%E9%9B%86" aria-label="链接到本节">#</a>步骤 3：稳定复现并采集</h3>
+<p>按固定脚本复现，保留问题样本、正常样本和原始 Trace。启动问题在应用启动前开始采集。</p>
+<h3 id="步骤-4-找到端到端时间窗"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-4-%E6%89%BE%E5%88%B0%E7%AB%AF%E5%88%B0%E7%AB%AF%E6%97%B6%E9%97%B4%E7%AA%97" aria-label="链接到本节">#</a>步骤 4：找到端到端时间窗</h3>
+<p>优先使用用户动作、自定义 Trace、React Marker、<code>loadBundle</code>、<code>CONTENT_APPEARED</code> 或经过验证的刷新事件建立边界。</p>
+<h3 id="步骤-5-先分线程"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-5-%E5%85%88%E5%88%86%E7%BA%BF%E7%A8%8B" aria-label="链接到本节">#</a>步骤 5：先分线程</h3>
+<p>确认 RNOH_JS、MAIN/UI、可选 Worker 以及相关系统线程。多实例场景先找到正确的 JS 线程。</p>
+<h3 id="步骤-6-再分阶段"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-6-%E5%86%8D%E5%88%86%E9%98%B6%E6%AE%B5" aria-label="链接到本节">#</a>步骤 6：再分阶段</h3>
+<p>按 <code>Bundle/初始化 -&gt; Render -&gt; Commit/Layout/Diff -&gt; Mount -&gt; 刷新</code> 切分，找出最早偏离正常样本的阶段。</p>
+<h3 id="步骤-7-缩小到任务或组件"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-7-%E7%BC%A9%E5%B0%8F%E5%88%B0%E4%BB%BB%E5%8A%A1%E6%88%96%E7%BB%84%E4%BB%B6" aria-label="链接到本节">#</a>步骤 7：缩小到任务或组件</h3>
+<p>使用调用栈、函数 Slice、自定义 Trace、HiLog、ArkUI Inspector 或开发环境中的 React DevTools 查找候选。</p>
+<h3 id="步骤-8-进行单变量验证"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-8-%E8%BF%9B%E8%A1%8C%E5%8D%95%E5%8F%98%E9%87%8F%E9%AA%8C%E8%AF%81" aria-label="链接到本节">#</a>步骤 8：进行单变量验证</h3>
+<p>只改变一个候选因素并重新采集。记录端到端结果和关键 Slice 是否同时变化。</p>
+<h3 id="步骤-9-输出证据化结论"><a class="heading-anchor" href="#%E6%AD%A5%E9%AA%A4-9-%E8%BE%93%E5%87%BA%E8%AF%81%E6%8D%AE%E5%8C%96%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>步骤 9：输出证据化结论</h3>
+<p>区分“已确认”“高概率”“待确认”和“已排除”。不隐藏不确定性。</p>
+<hr>
+<h2 id="11-定位记录模板"><a class="heading-anchor" href="#11-%E5%AE%9A%E4%BD%8D%E8%AE%B0%E5%BD%95%E6%A8%A1%E6%9D%BF" aria-label="链接到本节">#</a>11. 定位记录模板</h2>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">【问题】
+用户操作：
+期望结果：
+实际结果：
+发生频率：
+
+【环境】
+RNOH 版本：
+系统/API Level：
+设备/刷新率：
+DevEco Studio/Profiler/SmartPerf 版本：
+构建模式：
+Bundle 配置：
+JS 引擎：
+
+【采集】
+复现步骤：
+Trace 文件：
+问题时间窗：
+正常对照：
+
+【证据】
+端到端耗时或帧表现：
+RNOH_JS：
+MAIN/UI：
+Render：
+Commit/Layout/Diff：
+Mount：
+ArkUI/系统刷新：
+日志/调用栈：
+
+【结论】
+已确认：
+高概率：
+待确认：
+已排除：
+
+【验证】
+单变量改动：
+关键 Slice 变化：
+端到端指标变化：
+
+【后续】
+建议动作：
+需要补充的材料：</code></pre></div>
+<hr>
+<h2 id="12-对外问题单最小材料集"><a class="heading-anchor" href="#12-%E5%AF%B9%E5%A4%96%E9%97%AE%E9%A2%98%E5%8D%95%E6%9C%80%E5%B0%8F%E6%9D%90%E6%96%99%E9%9B%86" aria-label="链接到本节">#</a>12. 对外问题单最小材料集</h2>
+<p>提交 RNOH 性能问题时，建议至少提供：</p>
+<ul>
+<li>可复现的最小工程或明确的复现步骤。</li>
+<li>RNOH、系统、设备、工具和构建信息。</li>
+<li>Release 构建的原始 Trace。</li>
+<li>问题时间窗及起止标记。</li>
+<li>同环境正常对照。</li>
+<li>关键线程和关键 Slice 截图。</li>
+<li>若使用自定义 Trace，提供对应代码位置和名称含义。</li>
+<li>已完成的单变量实验及结果。</li>
+<li>不包含用户隐私、账号、鉴权信息和业务敏感数据的日志。</li>
+</ul>
+<p>只有截图而没有原始 Trace，通常不足以继续展开和核对调用关系。</p>
+<hr>
+<h2 id="13-参考资料"><a class="heading-anchor" href="#13-%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99" aria-label="链接到本节">#</a>13. 参考资料</h2>
+<h3 id="13-1-rnoh-公开文档"><a class="heading-anchor" href="#13-1-rnoh-%E5%85%AC%E5%BC%80%E6%96%87%E6%A1%A3" aria-label="链接到本节">#</a>13.1 RNOH 公开文档</h3>
+<ol>
+<li><a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%9E%B6%E6%9E%84%E4%BB%8B%E7%BB%8D.md">RNOH 架构介绍</a></li>
+<li><a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%B8%B2%E6%9F%93%E4%B8%89%E9%98%B6%E6%AE%B5.md">React Native 渲染流程分析</a></li>
+<li><a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98.md">RNOH 性能调优</a></li>
+<li><a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/%E8%B0%83%E8%AF%95%E8%B0%83%E6%B5%8B.md">RNOH 调试调测</a></li>
+<li><a href="https://gitcode.com/CPF-RN/ohos_react_native/blob/master/docs/zh-cn/faqs/%E5%AE%9A%E4%BD%8D%E5%AE%9A%E7%95%8C%E6%8C%87%E5%AF%BC%E7%B1%BBFAQ.md">RNOH 定位定界指导类 FAQ</a></li>
+</ol>
+<h3 id="13-2-harmonyos-官方文档"><a class="heading-anchor" href="#13-2-harmonyos-%E5%AE%98%E6%96%B9%E6%96%87%E6%A1%A3" aria-label="链接到本节">#</a>13.2 HarmonyOS 官方文档</h3>
+<ol>
+<li><a href="https://developer.huawei.com/consumer/cn/doc/best-practices-V5/bpta-optimization-overview-V5">性能分析简介</a></li>
+<li><a href="https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-profiler-introduction-V5">使用 DevEco Profiler 进行性能调优</a></li>
+<li><a href="https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-arkui-inspector-V5">ArkUI Inspector 布局分析</a></li>
+</ol>
+<blockquote>
+<p>版本提示：部分 HarmonyOS 官方文档按 HarmonyOS/API 版本归档。使用时应选择与目标 SDK 匹配的官方文档，不应跨版本照搬工具参数。</p>
+</blockquote>
+<hr>
+<h2 id="结语"><a class="heading-anchor" href="#%E7%BB%93%E8%AF%AD" aria-label="链接到本节">#</a>结语</h2>
+<p>RNOH 性能定位的核心不是记住一组函数名或毫秒阈值，而是建立可复核的证据链：</p>
+<p><code>固定环境 -&gt; 稳定复现 -&gt; 确定时间窗 -&gt; 识别线程 -&gt; 映射阶段 -&gt; 找到首个异常点 -&gt; 单变量验证 -&gt; 输出结论与未确认项</code></p>
+<p>先认线程，再认阶段；先看端到端，再看局部；先建立对照，再讨论归因。</p>
+
+        </article>
+        <nav class="doc-pagination" aria-label="文档导航">
+          <a href="index.html"><small>返回目录</small><strong>RNOH 性能</strong></a>
+          <span></span>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#1-%E5%88%86%E6%9E%90%E5%89%8D%E5%85%88%E5%9B%BA%E5%AE%9A%E7%8E%AF%E5%A2%83" data-level="2">1. 分析前先固定环境</a>
+<a href="#1-1-%E6%80%A7%E8%83%BD%E7%BB%93%E8%AE%BA%E5%BF%85%E9%A1%BB%E5%9F%BA%E4%BA%8E%E7%94%9F%E4%BA%A7%E5%BD%A2%E6%80%81" data-level="3">1.1 性能结论必须基于生产形态</a>
+<a href="#1-2-%E6%AF%8F%E6%AC%A1%E9%87%87%E9%9B%86%E8%87%B3%E5%B0%91%E8%AE%B0%E5%BD%95%E4%BB%A5%E4%B8%8B%E4%BF%A1%E6%81%AF" data-level="3">1.2 每次采集至少记录以下信息</a>
+<a href="#1-3-%E5%9B%BA%E5%AE%9A%E5%A4%8D%E7%8E%B0%E8%84%9A%E6%9C%AC" data-level="3">1.3 固定复现脚本</a>
+<a href="#2-%E5%BF%83%E6%99%BA%E6%A8%A1%E5%9E%8B-%E5%85%88%E8%AE%A4%E7%BA%BF%E7%A8%8B-%E5%86%8D%E8%AE%A4%E9%98%B6%E6%AE%B5" data-level="2">2. 心智模型：先认线程，再认阶段</a>
+<a href="#2-1-rnoh-%E5%85%AC%E5%BC%80%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B" data-level="3">2.1 RNOH 公开线程模型</a>
+<a href="#2-2-fabric-%E6%B8%B2%E6%9F%93%E6%B5%81%E6%B0%B4%E7%BA%BF" data-level="3">2.2 Fabric 渲染流水线</a>
+<a href="#2-3-%E4%BB%8E%E7%BA%BF%E7%A8%8B%E4%B8%8E%E9%98%B6%E6%AE%B5%E5%BB%BA%E7%AB%8B%E6%9C%80%E5%B0%8F%E6%98%A0%E5%B0%84" data-level="3">2.3 从线程与阶段建立最小映射</a>
+<a href="#3-%E5%9F%BA%E7%A1%80%E5%B7%A5%E5%85%B7%E7%AE%B1" data-level="2">3. 基础工具箱</a>
+<a href="#3-1-%E5%B7%A5%E5%85%B7%E9%80%89%E6%8B%A9%E8%A1%A8" data-level="3">3.1 工具选择表</a>
+<a href="#3-2-deveco-studio-profiler" data-level="3">3.2 DevEco Studio Profiler</a>
+<a href="#3-3-smartperf" data-level="3">3.3 SmartPerf</a>
+<a href="#3-4-hilog" data-level="3">3.4 HiLog</a>
+<a href="#3-5-arkui-inspector" data-level="3">3.5 ArkUI Inspector</a>
+<a href="#3-6-react-devtools-%E7%9A%84%E4%BD%BF%E7%94%A8%E8%BE%B9%E7%95%8C" data-level="3">3.6 React DevTools 的使用边界</a>
+<a href="#4-%E5%A6%82%E4%BD%95%E6%B7%BB%E5%8A%A0%E5%8F%AF%E5%85%B3%E8%81%94%E7%9A%84-trace" data-level="2">4. 如何添加可关联的 Trace</a>
+<a href="#4-1-js-%E4%BE%A7" data-level="3">4.1 JS 侧</a>
+<a href="#4-2-arkts-%E4%BE%A7" data-level="3">4.2 ArkTS 侧</a>
+<a href="#4-3-c-%E4%BE%A7" data-level="3">4.3 C++ 侧</a>
+<a href="#4-4-%E8%87%AA%E5%AE%9A%E4%B9%89-trace-%E7%9A%84%E5%91%BD%E5%90%8D%E8%A7%84%E5%88%99" data-level="3">4.4 自定义 Trace 的命名规则</a>
+<a href="#5-react-marker-%E4%BD%BF%E7%94%A8%E5%85%AC%E5%BC%80%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E8%BE%B9%E7%95%8C" data-level="2">5. React Marker：使用公开的生命周期边界</a>
+<a href="#5-1-%E5%BC%80%E5%90%AF%E6%96%B9%E5%BC%8F" data-level="3">5.1 开启方式</a>
+<a href="#5-2-%E4%B8%8E%E6%80%A7%E8%83%BD%E5%AE%9A%E4%BD%8D%E6%9C%80%E7%9B%B8%E5%85%B3%E7%9A%84-marker" data-level="3">5.2 与性能定位最相关的 Marker</a>
+<a href="#5-3-%E5%A6%82%E4%BD%95%E7%94%A8-marker-%E7%BC%A9%E5%B0%8F%E8%8C%83%E5%9B%B4" data-level="3">5.3 如何用 Marker 缩小范围</a>
+<a href="#6-rnoh-%E5%85%B3%E9%94%AE-trace-%E7%82%B9%E8%A7%A3%E8%AF%BB" data-level="2">6. RNOH 关键 Trace 点解读</a>
+<a href="#6-1-bundle-%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%9D%E5%A7%8B%E5%8C%96" data-level="3">6.1 Bundle 与实例初始化</a>
+<a href="#6-2-render-%E9%98%B6%E6%AE%B5" data-level="3">6.2 Render 阶段</a>
+<a href="#6-3-commit-layout-%E4%B8%8E-diff" data-level="3">6.3 Commit、Layout 与 Diff</a>
+<a href="#6-4-mount-%E9%98%B6%E6%AE%B5" data-level="3">6.4 Mount 阶段</a>
+<a href="#6-5-turbomodule-%E4%B8%8E%E8%B7%A8%E7%BA%BF%E7%A8%8B%E8%B0%83%E7%94%A8" data-level="3">6.5 TurboModule 与跨线程调用</a>
+<a href="#6-6-arkui-%E4%B8%8E%E6%9C%80%E7%BB%88%E5%88%B7%E6%96%B0" data-level="3">6.6 ArkUI 与最终刷新</a>
+<a href="#7-%E4%B8%80%E6%AC%A1%E5%AE%8C%E6%95%B4%E7%9A%84%E9%A6%96%E5%B8%A7-trace-%E8%A7%A3%E8%AF%BB" data-level="2">7. 一次完整的首帧 Trace 解读</a>
+<a href="#7-1-%E5%BB%BA%E8%AE%AE%E7%9A%84%E9%80%90%E5%B1%82%E5%88%86%E6%9E%90%E6%B3%95" data-level="3">7.1 建议的逐层分析法</a>
+<a href="#8-%E6%97%B6%E9%97%B4%E9%A2%84%E7%AE%97%E4%B8%8E%E5%9F%BA%E7%BA%BF" data-level="2">8. 时间预算与基线</a>
+<a href="#8-1-%E4%B8%8D%E4%BD%BF%E7%94%A8%E7%BB%9F%E4%B8%80%E7%9A%84%E9%98%B6%E6%AE%B5-%E6%AD%A3%E5%B8%B8%E8%8C%83%E5%9B%B4" data-level="3">8.1 不使用统一的阶段“正常范围”</a>
+<a href="#8-2-%E6%8E%A8%E8%8D%90%E7%9A%84%E5%88%A4%E6%96%AD%E6%96%B9%E5%BC%8F" data-level="3">8.2 推荐的判断方式</a>
+<a href="#9-%E5%B8%B8%E8%A7%81%E8%AF%AF%E8%AF%BB%E4%B8%8E%E9%81%BF%E5%9D%91" data-level="2">9. 常见误读与避坑</a>
+<a href="#9-1-trace-%E7%A9%BA%E7%99%BD%E7%AD%89%E4%BA%8E%E7%BA%BF%E7%A8%8B%E7%A9%BA%E9%97%B2" data-level="3">9.1 Trace 空白等于线程空闲</a>
+<a href="#9-2-%E7%9C%8B%E5%88%B0-js-%E7%AD%89%E5%BE%85%E5%B0%B1%E8%AE%A4%E5%AE%9A-js-%E9%80%BB%E8%BE%91%E6%85%A2" data-level="3">9.2 看到 JS 等待就认定 JS 逻辑慢</a>
+<a href="#9-3-%E7%9C%8B%E5%88%B0-main-ui-%E5%BF%99%E5%B0%B1%E8%AE%A4%E5%AE%9A-arkui-%E7%BB%98%E5%88%B6%E6%85%A2" data-level="3">9.3 看到 MAIN/UI 忙就认定 ArkUI 绘制慢</a>
+<a href="#9-4-%E7%9C%8B%E5%88%B0-handlemutation-%E5%B0%B1%E8%AE%A4%E5%AE%9A-rnoh-%E6%A1%86%E6%9E%B6%E6%85%A2" data-level="3">9.4 看到 `handleMutation` 就认定 RNOH 框架慢</a>
+<a href="#9-5-%E7%9C%8B%E5%88%B0%E7%B3%BB%E7%BB%9F%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%BF%99%E5%B0%B1%E8%AE%A4%E5%AE%9A%E4%B8%9A%E5%8A%A1%E5%8D%A1%E9%A1%BF" data-level="3">9.5 看到系统线程池忙就认定业务卡顿</a>
+<a href="#9-6-%E7%94%A8-debug-%E7%BB%93%E6%9E%9C%E6%9B%BF%E4%BB%A3-release-%E7%BB%93%E8%AE%BA" data-level="3">9.6 用 Debug 结果替代 Release 结论</a>
+<a href="#9-7-%E5%8F%AA%E5%87%AD%E4%B8%80%E6%AC%A1-trace-%E4%B8%8B%E7%BB%93%E8%AE%BA" data-level="3">9.7 只凭一次 Trace 下结论</a>
+<a href="#9-8-%E6%8A%8A%E7%9B%B8%E5%85%B3%E6%80%A7%E5%86%99%E6%88%90%E5%9B%A0%E6%9E%9C" data-level="3">9.8 把相关性写成因果</a>
+<a href="#10-%E6%A0%87%E5%87%86%E5%AE%9A%E4%BD%8D%E6%B5%81%E7%A8%8B" data-level="2">10. 标准定位流程</a>
+<a href="#%E6%AD%A5%E9%AA%A4-1-%E5%AE%9A%E4%B9%89%E9%97%AE%E9%A2%98%E5%92%8C%E6%8C%87%E6%A0%87" data-level="3">步骤 1：定义问题和指标</a>
+<a href="#%E6%AD%A5%E9%AA%A4-2-%E7%A1%AE%E8%AE%A4%E6%9E%84%E5%BB%BA%E4%B8%8E%E7%8E%AF%E5%A2%83" data-level="3">步骤 2：确认构建与环境</a>
+<a href="#%E6%AD%A5%E9%AA%A4-3-%E7%A8%B3%E5%AE%9A%E5%A4%8D%E7%8E%B0%E5%B9%B6%E9%87%87%E9%9B%86" data-level="3">步骤 3：稳定复现并采集</a>
+<a href="#%E6%AD%A5%E9%AA%A4-4-%E6%89%BE%E5%88%B0%E7%AB%AF%E5%88%B0%E7%AB%AF%E6%97%B6%E9%97%B4%E7%AA%97" data-level="3">步骤 4：找到端到端时间窗</a>
+<a href="#%E6%AD%A5%E9%AA%A4-5-%E5%85%88%E5%88%86%E7%BA%BF%E7%A8%8B" data-level="3">步骤 5：先分线程</a>
+<a href="#%E6%AD%A5%E9%AA%A4-6-%E5%86%8D%E5%88%86%E9%98%B6%E6%AE%B5" data-level="3">步骤 6：再分阶段</a>
+<a href="#%E6%AD%A5%E9%AA%A4-7-%E7%BC%A9%E5%B0%8F%E5%88%B0%E4%BB%BB%E5%8A%A1%E6%88%96%E7%BB%84%E4%BB%B6" data-level="3">步骤 7：缩小到任务或组件</a>
+<a href="#%E6%AD%A5%E9%AA%A4-8-%E8%BF%9B%E8%A1%8C%E5%8D%95%E5%8F%98%E9%87%8F%E9%AA%8C%E8%AF%81" data-level="3">步骤 8：进行单变量验证</a>
+<a href="#%E6%AD%A5%E9%AA%A4-9-%E8%BE%93%E5%87%BA%E8%AF%81%E6%8D%AE%E5%8C%96%E7%BB%93%E8%AE%BA" data-level="3">步骤 9：输出证据化结论</a>
+<a href="#11-%E5%AE%9A%E4%BD%8D%E8%AE%B0%E5%BD%95%E6%A8%A1%E6%9D%BF" data-level="2">11. 定位记录模板</a>
+<a href="#12-%E5%AF%B9%E5%A4%96%E9%97%AE%E9%A2%98%E5%8D%95%E6%9C%80%E5%B0%8F%E6%9D%90%E6%96%99%E9%9B%86" data-level="2">12. 对外问题单最小材料集</a>
+<a href="#13-%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99" data-level="2">13. 参考资料</a>
+<a href="#13-1-rnoh-%E5%85%AC%E5%BC%80%E6%96%87%E6%A1%A3" data-level="3">13.1 RNOH 公开文档</a>
+<a href="#13-2-harmonyos-%E5%AE%98%E6%96%B9%E6%96%87%E6%A1%A3" data-level="3">13.2 HarmonyOS 官方文档</a>
+<a href="#%E7%BB%93%E8%AF%AD" data-level="2">结语</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../assets/site.js"></script>
+  </body>
+</html>

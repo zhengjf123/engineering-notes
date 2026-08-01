@@ -21,6 +21,7 @@ engineering-notes/
 │   │   └── react-native-android-trace.html
 │   ├── rnoh/
 │   │   ├── performance/
+│   │   │   └── rnoh-performance-issue-localization-guide.html
 │   │   ├── features/
 │   │   └── components/
 │   │       └── scrollview/
@@ -32,6 +33,7 @@ engineering-notes/
 │   │   └── react-native-android-trace.md
 │   ├── rnoh/
 │   │   ├── performance/
+│   │   │   └── rnoh-performance-issue-localization-guide.md
 │   │   ├── features/
 │   │   └── components/
 │   │       └── scrollview/
@@ -66,6 +68,10 @@ docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html
 当前 Android 专题包含：
 
 1. React Native Android Trace 抓取与分析指南
+
+当前 RNOH 性能专题包含：
+
+1. RNOH 性能问题定位指导（基础篇）
 
 ## 站点检查
 

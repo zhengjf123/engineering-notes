@@ -660,6 +660,17 @@ button {
   margin: 0;
 }
 
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 22px auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  box-shadow: 0 8px 24px rgba(26, 47, 56, 0.05);
+}
+
 .markdown-body hr {
   height: 1px;
   margin: 48px 0;
