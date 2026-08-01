@@ -15,6 +15,10 @@
 engineering-notes/
 ├── index.html
 ├── docs/
+│   ├── index.html
+│   ├── android/
+│   │   ├── index.html
+│   │   └── react-native-android-trace.html
 │   ├── rnoh/
 │   │   ├── performance/
 │   │   ├── features/
@@ -22,6 +26,10 @@ engineering-notes/
 │   │       └── scrollview/
 │   └── cpp/
 ├── markdown/
+│   ├── index.md
+│   ├── android/
+│   │   ├── index.md
+│   │   └── react-native-android-trace.md
 │   ├── rnoh/
 │   │   ├── performance/
 │   │   ├── features/
@@ -54,6 +62,10 @@ docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html
 1. RN 0.72 鸿蒙 ScrollView 完整控制流程
 2. 触摸序列与点击、滚动的关系
 3. `onPropsChanged` 属性更新调用链
+
+当前 Android 专题包含：
+
+1. React Native Android Trace 抓取与分析指南
 
 ## 站点检查
 

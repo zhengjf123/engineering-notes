@@ -14,7 +14,15 @@ This repository stores engineering documentation and reusable analysis skills.
 
 ## Documentation structure
 
-RNOH documentation is organized identically under both roots:
+Top-level technical domains are mirrored under both roots:
+
+```text
+markdown/android/              docs/android/
+markdown/rnoh/                 docs/rnoh/
+markdown/cpp/                  docs/cpp/
+```
+
+RNOH documentation is further organized as:
 
 ```text
 markdown/rnoh/                 docs/rnoh/

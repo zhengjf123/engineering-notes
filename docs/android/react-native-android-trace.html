@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="React Native Android System Trace 与 Perfetto 抓取、分析和复测实战指南。">
+    <title>React Native Android Trace 抓取与分析指南 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="index.html" aria-current="page">Android</a>
+          <a href="../rnoh/index.html">RNOH</a>
+          <a href="../cpp/index.html">C++</a>
+          <a href="../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="Android 专题">
+        <div>
+          <p class="side-label">Android 专题</p>
+          <nav class="side-nav">
+            <a href="index.html">专题首页</a>
+            <a href="react-native-android-trace.html" aria-current="page">RN Android Trace</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="index.html">Android</a><span aria-hidden="true">/</span>
+          <span>React Native Android Trace</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>Android 性能指南</strong> · System Trace + Perfetto 实战流程</span>
+          <span><a href="../../markdown/android/react-native-android-trace.md">Markdown 源文件</a> · <a href="index.html">返回 Android 目录</a></span>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="react-native-android-trace-抓取与分析指南">React Native Android Trace 抓取与分析指南</h1>
+<blockquote>
+<p>Android Studio System Trace + Perfetto 实战流程</p>
+</blockquote>
+<blockquote>
+<p>文档版本：2026-07（根据原始 Word 文档整理）。本页保留原文的流程、命令、表格、检查清单和官方资料链接，并将关键流程补充为 Mermaid 图，方便网页端阅读。</p>
+</blockquote>
+<div class="mermaid-wrap"><div class="mermaid">flowchart LR
+    Prepare[&quot;1. 准备&quot;] --&gt; Record[&quot;2. 录制&quot;]
+    Record --&gt; FindFrame[&quot;3. 定位掉帧&quot;]
+    FindFrame --&gt; Analyze[&quot;4. 分析线程&quot;]
+    Analyze --&gt; Conclusion[&quot;5. 形成结论&quot;]</div><pre class="mermaid-fallback">flowchart LR
+    Prepare[&quot;1. 准备&quot;] --&gt; Record[&quot;2. 录制&quot;]
+    Record --&gt; FindFrame[&quot;3. 定位掉帧&quot;]
+    FindFrame --&gt; Analyze[&quot;4. 分析线程&quot;]
+    Analyze --&gt; Conclusion[&quot;5. 形成结论&quot;]</pre></div>
+<h2 id="文档定位"><a class="heading-anchor" href="#%E6%96%87%E6%A1%A3%E5%AE%9A%E4%BD%8D" aria-label="链接到本节">#</a>文档定位</h2>
+<p>用于排查 React Native Android 中的掉帧、卡顿、页面跳转慢、列表滑动不流畅、动画抖动，以及主线程、RenderThread、GPU 或 JavaScript 线程异常占用。</p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>适用环境</td>
+<td>Windows / Android Studio / ADB / RN Android</td>
+</tr>
+<tr>
+<td>建议设备</td>
+<td>优先真机；模拟器可用于熟悉流程</td>
+</tr>
+<tr>
+<td>文档版本</td>
+<td>2026-07（依据官方文档整理）</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>核心原则：短时间、单场景、可复现、先定线程，再定代码。</strong></p>
+</blockquote>
+<hr>
+<h2 id="目录-文档结构"><a class="heading-anchor" href="#%E7%9B%AE%E5%BD%95-%E6%96%87%E6%A1%A3%E7%BB%93%E6%9E%84" aria-label="链接到本节">#</a>目录 文档结构</h2>
+<ul>
+<li><p><strong>1</strong> · 先认识 Android Trace</p>
+</li>
+<li><p><strong>2</strong> · 抓取前准备</p>
+</li>
+<li><p><strong>3</strong> · 方案一：Android Studio 抓 System Trace</p>
+</li>
+<li><p><strong>4</strong> · 方案二：ADB + Perfetto 命令行抓取</p>
+</li>
+<li><p><strong>5</strong> · 如何看 Trace：从掉帧到根因</p>
+</li>
+<li><p><strong>6</strong> · React Native 专项分析</p>
+</li>
+<li><p><strong>7</strong> · 添加自定义 Trace 标记</p>
+</li>
+<li><p><strong>8</strong> · 完整实战：ScrollView 卡顿</p>
+</li>
+<li><p><strong>9</strong> · 常见问题与故障排查</p>
+</li>
+<li><p><strong>10</strong> · 结论模板与检查清单</p>
+</li>
+<li><p><strong>附录</strong> · 常用命令、术语与官方资料</p>
+</li>
+</ul>
+<blockquote>
+<p><strong>推荐阅读路径：</strong> 第一次使用：依次阅读第 2、3、5、8 节；已有 Trace 文件：直接从第 5 节开始；怀疑是 JS/React 重渲染：重点看第 6、7 节。</p>
+</blockquote>
+<hr>
+<h2 id="1-先认识-android-trace"><a class="heading-anchor" href="#1-%E5%85%88%E8%AE%A4%E8%AF%86-android-trace" aria-label="链接到本节">#</a>1 先认识 Android Trace</h2>
+<p>Trace 的价值不只是“看哪个函数慢”，而是把用户操作、帧渲染、线程状态、CPU 调度和系统事件放在同一条时间线上进行关联。</p>
+<h3 id="1-1-本文主要分析哪种-trace"><a class="heading-anchor" href="#1-1-%E6%9C%AC%E6%96%87%E4%B8%BB%E8%A6%81%E5%88%86%E6%9E%90%E5%93%AA%E7%A7%8D-trace" aria-label="链接到本节">#</a>1.1 本文主要分析哪种 Trace</h3>
+<p>本文以 System Trace（系统跟踪）为核心。它可以观察应用和系统进程如何在线程与 CPU 核心上运行、界面是否平滑，以及主线程、RenderThread、GPU 完成时间之间的关系。</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>主要回答的问题</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>System Trace</td>
+<td>卡顿发生时，哪个线程或系统资源在阻塞？</td>
+<td>掉帧、启动慢、页面切换、动画、输入延迟</td>
+</tr>
+<tr>
+<td>方法/函数 Trace</td>
+<td>具体调用链中，哪个 Java/Kotlin 方法耗时？</td>
+<td>原生代码热点、函数级调用分析</td>
+</tr>
+<tr>
+<td>RN DevTools Performance</td>
+<td>哪个 JS 任务、React 渲染或 Commit 占用时间？</td>
+<td>JS 长任务、组件重渲染、网络与 User Timing</td>
+</tr>
+<tr>
+<td>内存分析</td>
+<td>对象为何增长、是否泄漏？</td>
+<td>Java/Kotlin 堆、JS Heap、Native Allocations</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>不要混淆：</strong> System Trace 用于建立“系统级时间关系”；它通常不能直接告诉你某一行 TypeScript 代码慢。发现 JS 线程异常后，再使用 RN DevTools Performance 或 React Profiler 深挖。</p>
+</blockquote>
+<h3 id="1-2-一帧有多少时间预算"><a class="heading-anchor" href="#1-2-%E4%B8%80%E5%B8%A7%E6%9C%89%E5%A4%9A%E5%B0%91%E6%97%B6%E9%97%B4%E9%A2%84%E7%AE%97" aria-label="链接到本节">#</a>1.2 一帧有多少时间预算</h3>
+<table>
+<thead>
+<tr>
+<th>屏幕刷新率</th>
+<th>单帧理论预算</th>
+<th>理解方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>60 Hz</td>
+<td>约 16.67 ms</td>
+<td>主线程与渲染链路需要及时完成一帧</td>
+</tr>
+<tr>
+<td>90 Hz</td>
+<td>约 11.11 ms</td>
+<td>同样的 15 ms 工作在 60 Hz 可能勉强，在 90 Hz 已可能掉帧</td>
+</tr>
+<tr>
+<td>120 Hz</td>
+<td>约 8.33 ms</td>
+<td>高刷设备对线程阻塞更敏感</td>
+</tr>
+</tbody></table>
+<p>实际是否判定为卡顿还会受帧调度、缓冲、刷新率和渲染流水线影响，因此不要只按某个 Slice 是否超过 16.67 ms 下结论，应优先观察 Janky frames / Frame Timeline 与对应线程。</p>
+<h3 id="1-3-rn-android-常见线程"><a class="heading-anchor" href="#1-3-rn-android-%E5%B8%B8%E8%A7%81%E7%BA%BF%E7%A8%8B" aria-label="链接到本节">#</a>1.3 RN Android 常见线程</h3>
+<table>
+<thead>
+<tr>
+<th>线程/轨道</th>
+<th>主要职责</th>
+<th>异常时常见表现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>main / UI Thread</td>
+<td>Android View 测量、布局、绘制、输入分发、生命周期、部分 RN 原生更新</td>
+<td>页面冻结、点击延迟、measure/layout/draw 过长</td>
+</tr>
+<tr>
+<td>RenderThread</td>
+<td>处理显示列表并向 GPU 提交渲染工作</td>
+<td>阴影、裁剪、透明叠层、复杂绘制时变长</td>
+</tr>
+<tr>
+<td>GPU completion</td>
+<td>GPU 完成当前帧的时间</td>
+<td>GPU 负载高、过度绘制、复杂图层</td>
+</tr>
+<tr>
+<td>JS / Hermes 相关线程</td>
+<td>执行 JS、状态更新、业务计算、事件回调</td>
+<td>JS 长任务、React 大量渲染、onScroll 计算过重</td>
+</tr>
+<tr>
+<td>Binder / I/O / Worker</td>
+<td>跨进程调用、磁盘、数据库、后台任务</td>
+<td>Blocked、Uninterruptible Sleep、等待系统服务</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>线程名称会变化：</strong> RN 版本、旧/新架构、Hermes 版本和厂商系统会影响线程显示名称。不要只找固定的“mqt_js”，应结合进程、线程活动和事件内容识别。</p>
+</blockquote>
+<hr>
+<h2 id="2-抓取前准备"><a class="heading-anchor" href="#2-%E6%8A%93%E5%8F%96%E5%89%8D%E5%87%86%E5%A4%87" aria-label="链接到本节">#</a>2 抓取前准备</h2>
+<p>好的 Trace 首先来自可控的复现场景。抓取前准备比录制按钮本身更重要。</p>
+<h3 id="2-1-基础环境检查"><a class="heading-anchor" href="#2-1-%E5%9F%BA%E7%A1%80%E7%8E%AF%E5%A2%83%E6%A3%80%E6%9F%A5" aria-label="链接到本节">#</a>2.1 基础环境检查</h3>
+<p><strong>PowerShell：确认设备连接与系统版本</strong></p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">adb devices
+adb shell getprop ro.build.version.sdk
+adb shell getprop ro.product.model</code></pre></div>
+<p>adb devices 应显示设备序列号且状态为 device。若显示 unauthorized，需要在手机上确认 USB 调试授权。</p>
+<h3 id="2-2-查找应用包名"><a class="heading-anchor" href="#2-2-%E6%9F%A5%E6%89%BE%E5%BA%94%E7%94%A8%E5%8C%85%E5%90%8D" aria-label="链接到本节">#</a>2.2 查找应用包名</h3>
+<p>优先查看 android/app/build.gradle 或 build.gradle.kts 中的 applicationId。也可以在应用运行后使用下面的命令搜索进程：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">adb shell pidof com.example.app
+adb shell ps -A | findstr your_keyword</code></pre></div>
+<h3 id="2-3-使用接近真实性能的构建"><a class="heading-anchor" href="#2-3-%E4%BD%BF%E7%94%A8%E6%8E%A5%E8%BF%91%E7%9C%9F%E5%AE%9E%E6%80%A7%E8%83%BD%E7%9A%84%E6%9E%84%E5%BB%BA" aria-label="链接到本节">#</a>2.3 使用接近真实性能的构建</h3>
+<p>用于判断真实性能时，优先使用 release + profileable，而不是普通 Debug。Debug 构建和开发模式会引入额外开销，可能改变线程、日志和渲染表现。</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell"># React Native CLI（以项目实际脚本为准）
+yarn android --mode release
+
+# 或
+npm run android -- --mode release</code></pre></div>
+<p>Android Studio 官方推荐使用 release 变体并启用 profileable。多数现代 Android Gradle Plugin 项目会自动支持；若 Android Studio 无法以低开销模式分析，可以在 &lt;application&gt; 内检查：</p>
+<p><strong>AndroidManifest.xml（仅在项目未自动配置时）</strong></p>
+<div class="code-frame"><span class="code-frame__label">xml</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-xml">&lt;profileable android:shell=&quot;true&quot; /&gt;</code></pre></div>
+<blockquote>
+<p><strong>何时仍用 Debug：</strong> 需要 Java/Kotlin Allocation、Heap Dump 或某些 Interaction 轨道时，可使用 debuggable 构建；但分析卡顿结论时必须意识到 Debug 的性能成本。</p>
+</blockquote>
+<h3 id="2-4-设计复现场景"><a class="heading-anchor" href="#2-4-%E8%AE%BE%E8%AE%A1%E5%A4%8D%E7%8E%B0%E5%9C%BA%E6%99%AF" aria-label="链接到本节">#</a>2.4 设计复现场景</h3>
+<ol>
+<li><p>提前进入问题页面，避免把应用启动、网络加载和目标操作混在一起。</p>
+</li>
+<li><p>预热一次：先执行一遍操作，让图片、代码和缓存进入稳定状态；除非你就是要分析冷启动。</p>
+</li>
+<li><p>每条 Trace 只复现一个问题，例如只滑动一次、只打开一次 Modal、只完成一次页面跳转。</p>
+</li>
+<li><p>录制时长建议 5～15 秒。过短可能错过问题，过长会造成 Trace 体积大、定位困难。</p>
+</li>
+<li><p>记录开始与操作时间，例如“开始录制后第 3 秒点击按钮”。更好的方式是添加自定义标记。</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>真机优先：</strong> 模拟器适合学习工具与验证流程，但宿主机负载、虚拟 GPU 和调度会影响结果。最终性能结论建议在目标档位真机上复测。</p>
+</blockquote>
+<hr>
+<h2 id="3-方案一-android-studio-抓-system-trace"><a class="heading-anchor" href="#3-%E6%96%B9%E6%A1%88%E4%B8%80-android-studio-%E6%8A%93-system-trace" aria-label="链接到本节">#</a>3 方案一：Android Studio 抓 System Trace</h2>
+<p>这是最适合第一次使用的方案：无需编写配置，录制、保存和初步分析都在 Android Studio 内完成。</p>
+<h3 id="3-1-启动-profileable-应用"><a class="heading-anchor" href="#3-1-%E5%90%AF%E5%8A%A8-profileable-%E5%BA%94%E7%94%A8" aria-label="链接到本节">#</a>3.1 启动 Profileable 应用</h3>
+<ol>
+<li><p>使用 Android Studio 打开 RN 工程中的 android 目录。</p>
+</li>
+<li><p>进入 Build &gt; Select Build Variant，将 app 选择为 release。</p>
+</li>
+<li><p>在运行配置旁的 More actions 中选择 Profile &quot;app&quot; with low overhead。</p>
+</li>
+<li><p>选择已连接的真机或模拟器，等待应用启动，同时 Profiler 面板打开。</p>
+</li>
+</ol>
+<h3 id="3-2-开始录制"><a class="heading-anchor" href="#3-2-%E5%BC%80%E5%A7%8B%E5%BD%95%E5%88%B6" aria-label="链接到本节">#</a>3.2 开始录制</h3>
+<ol>
+<li><p>打开 View &gt; Tool Windows &gt; Profiler。</p>
+</li>
+<li><p>选择你的应用进程；通常是包名对应的主进程。</p>
+</li>
+<li><p>进入 CPU/System Trace 相关任务，选择 System Trace 并点击 Record / Start profiler task。</p>
+</li>
+<li><p>回到设备，只执行一次目标操作。</p>
+</li>
+<li><p>操作结束后立即停止录制，等待 Android Studio 解析。</p>
+</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>你应该做什么</th>
+<th>避免做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>录制前</td>
+<td>停在问题页面，保持 1～2 秒静止</td>
+<td>一边启动应用一边抓普通滑动问题</td>
+</tr>
+<tr>
+<td>录制中</td>
+<td>只做一次点击/滑动/跳转</td>
+<td>连续乱点、反复滚动、切换多个页面</td>
+</tr>
+<tr>
+<td>录制后</td>
+<td>立即 Stop，给 Trace 命名并记录场景</td>
+<td>忘记当前 Trace 对应什么操作</td>
+</tr>
+</tbody></table>
+<h3 id="3-3-导出与重新打开"><a class="heading-anchor" href="#3-3-%E5%AF%BC%E5%87%BA%E4%B8%8E%E9%87%8D%E6%96%B0%E6%89%93%E5%BC%80" aria-label="链接到本节">#</a>3.3 导出与重新打开</h3>
+<p>录制结束后，Android Studio 会把结果保存在 Past Recordings。需要长期保存或发给他人时，使用 Export recording 导出；也可以通过 Import recording 或拖入 Android Studio 编辑区重新打开。</p>
+<blockquote>
+<p><strong>命名建议：</strong> 采用“日期_包名_页面_操作_构建_设备”格式，例如：20260729_com.demo_list_scroll_release_Pixel8.perfetto-trace。</p>
+</blockquote>
+<h3 id="3-4-android-版本差异"><a class="heading-anchor" href="#3-4-android-%E7%89%88%E6%9C%AC%E5%B7%AE%E5%BC%82" aria-label="链接到本节">#</a>3.4 Android 版本差异</h3>
+<table>
+<thead>
+<tr>
+<th>设备版本</th>
+<th>优先查看的帧轨道</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Android 12 / API 31 及以上</td>
+<td>Display &gt; Janky frames</td>
+<td>红色部分表示超过渲染截止时间的部分；点击后会关联高亮主线程、RenderThread 和 GPU completion</td>
+</tr>
+<tr>
+<td>Android 11 / API 30</td>
+<td>Frame Lifecycle</td>
+<td>观察帧渲染流水线的各阶段</td>
+</tr>
+<tr>
+<td>更低版本</td>
+<td>Frames / SurfaceFlinger / Choreographer 等</td>
+<td>轨道展示可能较少，需更多结合主线程与 RenderThread 判断</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="4-方案二-adb-perfetto-命令行抓取"><a class="heading-anchor" href="#4-%E6%96%B9%E6%A1%88%E4%BA%8C-adb-perfetto-%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8A%93%E5%8F%96" aria-label="链接到本节">#</a>4 方案二：ADB + Perfetto 命令行抓取</h2>
+<p>命令行方式适合固定场景重复抓取、脚本化、远程协作，或 Android Studio Profiler 不方便使用的情况。</p>
+<h3 id="4-1-先查看设备支持的-atrace-分类"><a class="heading-anchor" href="#4-1-%E5%85%88%E6%9F%A5%E7%9C%8B%E8%AE%BE%E5%A4%87%E6%94%AF%E6%8C%81%E7%9A%84-atrace-%E5%88%86%E7%B1%BB" aria-label="链接到本节">#</a>4.1 先查看设备支持的 ATrace 分类</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">adb shell atrace --list_categories</code></pre></div>
+<p>不同 Android 版本、内核和厂商设备支持的分类可能不同。命令报“不支持某分类”时，从抓取命令中删除该分类。</p>
+<h3 id="4-2-直接使用-adb-shell-perfetto-轻量模式"><a class="heading-anchor" href="#4-2-%E7%9B%B4%E6%8E%A5%E4%BD%BF%E7%94%A8-adb-shell-perfetto-%E8%BD%BB%E9%87%8F%E6%A8%A1%E5%BC%8F" aria-label="链接到本节">#</a>4.2 直接使用 adb shell perfetto（轻量模式）</h3>
+<p>把 com.example.app 替换为真实 applicationId。下面命令录制 10 秒、使用 64 MB 缓冲区，并包含常见的调度、频率、View、窗口、Activity、图形和输入事件。</p>
+<p><strong>PowerShell 多行命令</strong></p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">adb shell perfetto `
+  -o /data/misc/perfetto-traces/rn_trace.perfetto-trace `
+  -t 10s `
+  -b 64mb `
+  -a com.example.app `
+  sched freq view wm am gfx input</code></pre></div>
+<p>录制期间执行一次目标操作。命令结束后把文件拉到当前目录：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">adb pull /data/misc/perfetto-traces/rn_trace.perfetto-trace .</code></pre></div>
+<blockquote>
+<p><strong>PowerShell 注意：</strong> 反引号 <code>`</code> 必须位于行尾，后面不能有空格。也可以把命令写成一行，避免续行符问题。</p>
+</blockquote>
+<h3 id="4-3-使用-perfetto-官方辅助脚本"><a class="heading-anchor" href="#4-3-%E4%BD%BF%E7%94%A8-perfetto-%E5%AE%98%E6%96%B9%E8%BE%85%E5%8A%A9%E8%84%9A%E6%9C%AC" aria-label="链接到本节">#</a>4.3 使用 Perfetto 官方辅助脚本</h3>
+<p>Perfetto 官方提供 record_android_trace 脚本，可自动录制、拉取并在 Perfetto UI 中打开。Windows 可在 PowerShell 中使用 curl.exe 和 Python：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell">curl.exe -O https://raw.githubusercontent.com/google/perfetto/main/tools/record_android_trace
+
+python record_android_trace `
+  -o rn_trace.perfetto-trace `
+  -t 10s `
+  -b 32mb `
+  -a com.example.app `
+  sched freq view ss input</code></pre></div>
+<p>如不希望自动打开浏览器，可根据脚本帮助使用 --no-open。执行 python record_android_trace --help 查看当前版本支持的参数。</p>
+<h3 id="4-4-在-perfetto-ui-打开"><a class="heading-anchor" href="#4-4-%E5%9C%A8-perfetto-ui-%E6%89%93%E5%BC%80" aria-label="链接到本节">#</a>4.4 在 Perfetto UI 打开</h3>
+<ol>
+<li><p>使用浏览器打开 Perfetto UI。</p>
+</li>
+<li><p>选择 Open trace file，或直接把 .perfetto-trace 文件拖入页面。</p>
+</li>
+<li><p>Perfetto UI 默认在浏览器本地通过 JavaScript/WebAssembly 解析文件；除非主动使用分享功能，Trace 不会默认上传。</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>Trace 文件可能包含敏感信息：</strong> 线程名、包名、进程、日志或自定义业务标记可能暴露项目细节。对外发送前先确认采集项并按团队规范处理。</p>
+</blockquote>
+<hr>
+<h2 id="5-如何看-trace-从掉帧到根因"><a class="heading-anchor" href="#5-%E5%A6%82%E4%BD%95%E7%9C%8B-trace-%E4%BB%8E%E6%8E%89%E5%B8%A7%E5%88%B0%E6%A0%B9%E5%9B%A0" aria-label="链接到本节">#</a>5 如何看 Trace：从掉帧到根因</h2>
+<p>推荐按照“找到异常帧 → 看关键线程 → 看线程状态 → 对照 CPU/系统事件 → 缩小到业务代码”的顺序分析。</p>
+<h3 id="5-1-第一步-定位问题发生的时间窗口"><a class="heading-anchor" href="#5-1-%E7%AC%AC%E4%B8%80%E6%AD%A5-%E5%AE%9A%E4%BD%8D%E9%97%AE%E9%A2%98%E5%8F%91%E7%94%9F%E7%9A%84%E6%97%B6%E9%97%B4%E7%AA%97%E5%8F%A3" aria-label="链接到本节">#</a>5.1 第一步：定位问题发生的时间窗口</h3>
+<ol>
+<li><p>先找到用户操作：输入事件、Activity/Navigation 变化、自定义标记，或你记录的操作时间。</p>
+</li>
+<li><p>在时间轴上只框选问题前后约 100～500 ms，避免被整条 Trace 干扰。</p>
+</li>
+<li><p>Perfetto 中可使用 W/S 或鼠标缩放，A/D 左右移动；Android Studio 中选中帧后可使用 M 聚焦。</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>先看时间窗口，不要先看总 CPU：</strong> 平均 CPU 使用率可能很低，但某一帧的主线程仍可能被 30 ms 的任务阻塞。性能问题通常需要在局部时间窗口内判断。</p>
+</blockquote>
+<h3 id="5-2-第二步-点击-janky-frame"><a class="heading-anchor" href="#5-2-%E7%AC%AC%E4%BA%8C%E6%AD%A5-%E7%82%B9%E5%87%BB-janky-frame" aria-label="链接到本节">#</a>5.2 第二步：点击 Janky frame</h3>
+<p>Android 12 及以上设备中，优先查看 Display &gt; Janky frames。找到带红色超期部分的帧并点击。Android Studio 会突出显示与该帧相关的主线程、RenderThread 和 GPU completion。</p>
+<table>
+<thead>
+<tr>
+<th>观察结果</th>
+<th>更可能的方向</th>
+<th>下一步</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Main Thread 明显跨越截止时间</td>
+<td>UI 线程执行、布局、绘制、同步调用或等待</td>
+<td>展开 main，查看 Choreographer/doFrame、performTraversals、measure/layout/draw 及阻塞状态</td>
+</tr>
+<tr>
+<td>RenderThread 明显变长</td>
+<td>复杂绘制、图层、阴影、裁剪、透明、图片缩放</td>
+<td>检查 DrawFrame、queue/dequeue buffer、图层与 GPU 轨道</td>
+</tr>
+<tr>
+<td>GPU completion 很晚</td>
+<td>GPU 压力或 Surface/合成问题</td>
+<td>检查 FrameTimeline、GPU/SurfaceFlinger、过度绘制和大面积效果</td>
+</tr>
+<tr>
+<td>三者不明显但交互仍延迟</td>
+<td>JS、Binder、I/O、锁、调度或输入链路</td>
+<td>查看 JS/Hermes、Binder、线程状态与 CPU 核心</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-第三步-分析-main-ui-thread"><a class="heading-anchor" href="#5-3-%E7%AC%AC%E4%B8%89%E6%AD%A5-%E5%88%86%E6%9E%90-main-ui-thread" aria-label="链接到本节">#</a>5.3 第三步：分析 Main / UI Thread</h3>
+<p>主线程长时间处于 Running，且在同一掉帧窗口出现较长的 measure、layout、draw、performTraversals、Choreographer#doFrame，通常意味着该帧中 UI 工作量过大。</p>
+<table>
+<thead>
+<tr>
+<th>主线程现象</th>
+<th>常见含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>大量 measure/layout</td>
+<td>组件层级复杂、尺寸反复变化、一次提交大量原生 View 更新</td>
+</tr>
+<tr>
+<td>draw / dispatchDraw 较长</td>
+<td>绘制复杂、图片/文本/自定义 View 工作量大</td>
+</tr>
+<tr>
+<td>Binder 调用中等待</td>
+<td>同步调用系统服务或跨进程服务</td>
+</tr>
+<tr>
+<td>Blocked / Waiting</td>
+<td>锁竞争、等待其他线程、条件变量或同步结果</td>
+</tr>
+<tr>
+<td>Runnable 很久但未 Running</td>
+<td>线程想执行却未得到 CPU，可能被其他高优先级工作抢占或设备负载过高</td>
+</tr>
+<tr>
+<td>GC 与卡顿重叠</td>
+<td>短期大量对象创建或内存压力导致回收影响关键线程</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-第四步-分析-renderthread-与-gpu"><a class="heading-anchor" href="#5-4-%E7%AC%AC%E5%9B%9B%E6%AD%A5-%E5%88%86%E6%9E%90-renderthread-%E4%B8%8E-gpu" aria-label="链接到本节">#</a>5.4 第四步：分析 RenderThread 与 GPU</h3>
+<p>如果 Main Thread 较空闲，而 RenderThread 或 GPU completion 明显拖长，问题更偏向渲染复杂度而不是 JS 业务计算。</p>
+<ul>
+<li><p>检查大面积阴影、模糊、透明叠层、圆角裁剪、蒙层和过度绘制。</p>
+</li>
+<li><p>检查大图是否在滚动中缩放、解码或频繁更换。</p>
+</li>
+<li><p>检查动画是否同时改变大量 View 的布局属性。</p>
+</li>
+<li><p>检查 SurfaceView/TextureView、视频、地图等独立 Surface 的合成关系。</p>
+</li>
+</ul>
+<h3 id="5-5-第五步-看线程状态与-cpu-调度"><a class="heading-anchor" href="#5-5-%E7%AC%AC%E4%BA%94%E6%AD%A5-%E7%9C%8B%E7%BA%BF%E7%A8%8B%E7%8A%B6%E6%80%81%E4%B8%8E-cpu-%E8%B0%83%E5%BA%A6" aria-label="链接到本节">#</a>5.5 第五步：看线程状态与 CPU 调度</h3>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>解释</th>
+<th>分析提示</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Running</td>
+<td>正在某个 CPU 核心执行</td>
+<td>查看当前 Slice/调用，以及是否跨越帧截止时间</td>
+</tr>
+<tr>
+<td>Runnable</td>
+<td>可运行但尚未获得 CPU</td>
+<td>查看同一 CPU 上是谁在运行，是否系统负载、抢占或降频</td>
+</tr>
+<tr>
+<td>Sleeping / Waiting</td>
+<td>主动等待事件、消息或条件</td>
+<td>找到唤醒点和等待对象，不等同于 CPU 计算过重</td>
+</tr>
+<tr>
+<td>Blocked</td>
+<td>被锁、同步或资源阻塞</td>
+<td>查看锁竞争、Binder、I/O 或其他线程依赖</td>
+</tr>
+<tr>
+<td>Uninterruptible Sleep</td>
+<td>通常在内核/I/O 路径等待</td>
+<td>检查磁盘、文件、驱动或设备相关事件</td>
+</tr>
+</tbody></table>
+<h3 id="5-6-常见-trace-模式速查"><a class="heading-anchor" href="#5-6-%E5%B8%B8%E8%A7%81-trace-%E6%A8%A1%E5%BC%8F%E9%80%9F%E6%9F%A5" aria-label="链接到本节">#</a>5.6 常见 Trace 模式速查</h3>
+<table>
+<thead>
+<tr>
+<th>Trace 模式</th>
+<th>高概率原因</th>
+<th>优先验证</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JS 线程连续忙，UI 随后集中更新</td>
+<td>JS 计算、大量状态更新、React 渲染</td>
+<td>RN DevTools Performance、React Profiler、拆分/缓存计算</td>
+</tr>
+<tr>
+<td>main 中 measure/layout 长</td>
+<td>大量原生节点更新或布局抖动</td>
+<td>组件树、FlatList/ScrollView 使用、布局属性变化</td>
+</tr>
+<tr>
+<td>RenderThread/GPU 过长</td>
+<td>绘制与合成压力</td>
+<td>阴影、裁剪、透明层、图片、地图/视频</td>
+</tr>
+<tr>
+<td>main Runnable 但得不到 CPU</td>
+<td>CPU 竞争、后台负载、温控降频</td>
+<td>CPU cores、频率、其他进程和设备温度</td>
+</tr>
+<tr>
+<td>Binder 与卡顿重叠</td>
+<td>同步系统调用</td>
+<td>Binder transaction 对端和调用频率</td>
+</tr>
+<tr>
+<td>GC 与滚动重叠</td>
+<td>对象分配过多</td>
+<td>日志、临时数组、闭包、图片对象和列表渲染</td>
+</tr>
+<tr>
+<td>磁盘 I/O 与页面打开重叠</td>
+<td>同步文件/数据库/资源读取</td>
+<td>移到后台、缓存、延迟加载</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="6-react-native-专项分析"><a class="heading-anchor" href="#6-react-native-%E4%B8%93%E9%A1%B9%E5%88%86%E6%9E%90" aria-label="链接到本节">#</a>6 React Native 专项分析</h2>
+<p>System Trace 用于确定“哪一层有问题”；RN DevTools 和 React Profiler 用于进一步确定“哪段 JS 或哪个组件有问题”。</p>
+<h3 id="6-1-识别-js-hermes-线程"><a class="heading-anchor" href="#6-1-%E8%AF%86%E5%88%AB-js-hermes-%E7%BA%BF%E7%A8%8B" aria-label="链接到本节">#</a>6.1 识别 JS / Hermes 线程</h3>
+<p>在应用进程下展开线程列表，搜索 JavaScript、Hermes、js、React 等相关名称，并结合其活动判断。旧架构与新架构、不同 RN 版本可能显示不同线程名称。</p>
+<p>当 JS 线程在用户操作后连续运行几十毫秒，并且随后触发主线程集中提交 UI 更新时，通常需要检查 JS 长任务、状态更新批次和组件渲染。</p>
+<h3 id="6-2-rn-常见-js-性能问题"><a class="heading-anchor" href="#6-2-rn-%E5%B8%B8%E8%A7%81-js-%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98" aria-label="链接到本节">#</a>6.2 RN 常见 JS 性能问题</h3>
+<ul>
+<li><p>onScroll、onTouchMove 等高频回调中执行过滤、排序、JSON 解析或大量日志。</p>
+</li>
+<li><p>一次 setState 导致大组件树重渲染，或 Context 值变化影响大量消费者。</p>
+</li>
+<li><p>ScrollView 一次性渲染大量子项，而不是使用 FlatList/SectionList 虚拟化。</p>
+</li>
+<li><p>列表 renderItem、keyExtractor、事件函数和对象样式频繁创建，导致不必要更新。</p>
+</li>
+<li><p>在交互关键路径同步处理数据库、文件、图片或大数组。</p>
+</li>
+<li><p>动画依赖 JS 每帧驱动，JS 忙时动画停止或掉帧。</p>
+</li>
+</ul>
+<h3 id="6-3-rn-devtools-performance-rn-0-83"><a class="heading-anchor" href="#6-3-rn-devtools-performance-rn-0-83" aria-label="链接到本节">#</a>6.3 RN DevTools Performance（RN 0.83+）</h3>
+<p>React Native 0.83 起，React Native DevTools 提供 Performance 面板，可在同一时间线中查看 JavaScript 执行、React Performance、网络事件和自定义 User Timings。</p>
+<ol>
+<li><p>使用 Debug 环境启动 RN 应用和 Metro。</p>
+</li>
+<li><p>打开开发菜单，选择 Open DevTools。</p>
+</li>
+<li><p>进入 Performance，开始录制。</p>
+</li>
+<li><p>执行一次问题操作后停止录制。</p>
+</li>
+<li><p>查看长任务、React Render/Commit、Network 与自定义标记的时间关系。</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>两个工具各司其职：</strong> RN DevTools 更适合定位具体 JS/React 问题；最终性能是否改善，仍应回到 release/profileable + System Trace 进行验证。</p>
+</blockquote>
+<h3 id="6-4-react-profiler-应看什么"><a class="heading-anchor" href="#6-4-react-profiler-%E5%BA%94%E7%9C%8B%E4%BB%80%E4%B9%88" aria-label="链接到本节">#</a>6.4 React Profiler 应看什么</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>解释</th>
+<th>优化方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单个组件 Render 很长</td>
+<td>组件自身计算或子树复杂</td>
+<td>拆分组件、memo、缓存派生数据、减少同步计算</td>
+</tr>
+<tr>
+<td>大量组件同时 Render</td>
+<td>状态/Context 影响范围过大</td>
+<td>缩小状态作用域、拆分 Context、稳定 props</td>
+</tr>
+<tr>
+<td>Commit 很长</td>
+<td>大量原生更新或布局工作</td>
+<td>减少同一提交中的节点变化，检查布局和列表</td>
+</tr>
+<tr>
+<td>短时间重复多次 Commit</td>
+<td>状态更新链或副作用反复触发</td>
+<td>合并更新、检查 useEffect 依赖和反馈循环</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="7-添加自定义-trace-标记"><a class="heading-anchor" href="#7-%E6%B7%BB%E5%8A%A0%E8%87%AA%E5%AE%9A%E4%B9%89-trace-%E6%A0%87%E8%AE%B0" aria-label="链接到本节">#</a>7 添加自定义 Trace 标记</h2>
+<p>自定义标记能把“用户点击”“业务计算”“原生模块调用”直接写入 Trace，显著降低定位成本。</p>
+<h3 id="7-1-kotlin-androidx-tracing"><a class="heading-anchor" href="#7-1-kotlin-androidx-tracing" aria-label="链接到本节">#</a>7.1 Kotlin：androidx.tracing</h3>
+<div class="code-frame"><span class="code-frame__label">kotlin</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-kotlin">import androidx.tracing.trace
+
+fun loadDetail() = trace(&quot;Detail#load&quot;) {
+    val data = repository.query()
+    renderData(data)
+}</code></pre></div>
+<p>Kotlin trace { } 会在代码块结束时自动关闭 Trace 区间，能够避免遗漏 endSection。抓取时需要包含应用 ATrace 标记，例如命令行使用 -a 包名。</p>
+<h3 id="7-2-java-kotlin-android-os-trace"><a class="heading-anchor" href="#7-2-java-kotlin-android-os-trace" aria-label="链接到本节">#</a>7.2 Java / Kotlin：android.os.Trace</h3>
+<div class="code-frame"><span class="code-frame__label">kotlin</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-kotlin">import android.os.Trace
+
+Trace.beginSection(&quot;NativeModule#doWork&quot;)
+try {
+    doWork()
+} finally {
+    Trace.endSection()
+}</code></pre></div>
+<blockquote>
+<p><strong>命名规则：</strong> 推荐“模块#动作”或“页面/阶段”格式，例如 List#buildData、Navigation#commit、Image#decode。名称应稳定、可搜索，避免写入用户隐私。</p>
+</blockquote>
+<h3 id="7-3-javascript-user-timing-rn-0-83"><a class="heading-anchor" href="#7-3-javascript-user-timing-rn-0-83" aria-label="链接到本节">#</a>7.3 JavaScript：User Timing（RN 0.83+）</h3>
+<div class="code-frame"><span class="code-frame__label">javascript</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-javascript">performance.mark('list-update-start');
+
+const result = items
+  .filter(item =&gt; item.enabled)
+  .map(transformItem);
+
+performance.mark('list-update-end');
+performance.measure(
+  'list-update',
+  'list-update-start',
+  'list-update-end',
+);</code></pre></div>
+<p>这些 User Timings 主要显示在 RN DevTools Performance 时间线中，用于把 JS 业务阶段与 React、网络事件关联。它们不能替代 Android System Trace。</p>
+<h3 id="7-4-最有价值的标记位置"><a class="heading-anchor" href="#7-4-%E6%9C%80%E6%9C%89%E4%BB%B7%E5%80%BC%E7%9A%84%E6%A0%87%E8%AE%B0%E4%BD%8D%E7%BD%AE" aria-label="链接到本节">#</a>7.4 最有价值的标记位置</h3>
+<ul>
+<li><p>用户动作入口：点击、手势结束、页面跳转请求。</p>
+</li>
+<li><p>大数据处理：过滤、排序、反序列化、图表数据转换。</p>
+</li>
+<li><p>Native Module / TurboModule：调用开始、原生处理、回调返回。</p>
+</li>
+<li><p>页面生命周期：开始构建、首屏数据就绪、首帧完成。</p>
+</li>
+<li><p>列表更新：数据接收、计算、setState、Commit 完成。</p>
+</li>
+</ul>
+<hr>
+<h2 id="8-完整实战-scrollview-卡顿"><a class="heading-anchor" href="#8-%E5%AE%8C%E6%95%B4%E5%AE%9E%E6%88%98-scrollview-%E5%8D%A1%E9%A1%BF" aria-label="链接到本节">#</a>8 完整实战：ScrollView 卡顿</h2>
+<p>下面是一条可直接照做的首次实操流程，目标是判断卡顿属于 JS、主线程、RenderThread 还是 GPU。</p>
+<h3 id="8-1-场景定义"><a class="heading-anchor" href="#8-1-%E5%9C%BA%E6%99%AF%E5%AE%9A%E4%B9%89" aria-label="链接到本节">#</a>8.1 场景定义</h3>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>填写示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>问题</td>
+<td>快速向下滑动 ScrollView 时偶发卡顿</td>
+</tr>
+<tr>
+<td>设备</td>
+<td>Pixel 8 / Android 15 / 120 Hz</td>
+</tr>
+<tr>
+<td>构建</td>
+<td>release + profileable</td>
+</tr>
+<tr>
+<td>录制动作</td>
+<td>静止 2 秒 → 快速滑动一次 → 等待停止 → Stop</td>
+</tr>
+<tr>
+<td>Trace 时长</td>
+<td>约 8～10 秒</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-抓取步骤"><a class="heading-anchor" href="#8-2-%E6%8A%93%E5%8F%96%E6%AD%A5%E9%AA%A4" aria-label="链接到本节">#</a>8.2 抓取步骤</h3>
+<ol>
+<li><p>提前打开 ScrollView 页面，确保数据已加载。</p>
+</li>
+<li><p>先滑动一次进行预热，然后回到起点。</p>
+</li>
+<li><p>在 Android Studio 中开始 System Trace。</p>
+</li>
+<li><p>静止约 2 秒，快速向下滑动一次，不要进行其他操作。</p>
+</li>
+<li><p>列表停止后等待约 1 秒，立即 Stop。</p>
+</li>
+<li><p>给 Trace 命名，并记录滑动大约发生在第几秒。</p>
+</li>
+</ol>
+<h3 id="8-3-分析决策树"><a class="heading-anchor" href="#8-3-%E5%88%86%E6%9E%90%E5%86%B3%E7%AD%96%E6%A0%91" aria-label="链接到本节">#</a>8.3 分析决策树</h3>
+<div class="mermaid-wrap"><div class="mermaid">flowchart TD
+    Start[&quot;选中最明显的 Janky frame&quot;] --&gt; Main{&quot;Main Thread 是否跨越截止时间？&quot;}
+    Main --&gt;|&quot;是&quot;| MainWork[&quot;检查 measure / layout / draw、UI 提交、GC、Binder、锁&quot;]
+    Main --&gt;|&quot;否&quot;| JS{&quot;JS / Hermes 是否在此前长时间运行？&quot;}
+    JS --&gt;|&quot;是&quot;| JSWork[&quot;用 RN DevTools / React Profiler 查长任务与 Render / Commit&quot;]
+    JS --&gt;|&quot;否&quot;| Render{&quot;RenderThread / GPU 是否超期？&quot;}
+    Render --&gt;|&quot;是&quot;| RenderWork[&quot;检查阴影、裁剪、透明层、图片、复杂动画与合成&quot;]
+    Render --&gt;|&quot;否&quot;| CPU[&quot;检查 Runnable、CPU 核心/频率、其他进程、温度与后台负载&quot;]</div><pre class="mermaid-fallback">flowchart TD
+    Start[&quot;选中最明显的 Janky frame&quot;] --&gt; Main{&quot;Main Thread 是否跨越截止时间？&quot;}
+    Main --&gt;|&quot;是&quot;| MainWork[&quot;检查 measure / layout / draw、UI 提交、GC、Binder、锁&quot;]
+    Main --&gt;|&quot;否&quot;| JS{&quot;JS / Hermes 是否在此前长时间运行？&quot;}
+    JS --&gt;|&quot;是&quot;| JSWork[&quot;用 RN DevTools / React Profiler 查长任务与 Render / Commit&quot;]
+    JS --&gt;|&quot;否&quot;| Render{&quot;RenderThread / GPU 是否超期？&quot;}
+    Render --&gt;|&quot;是&quot;| RenderWork[&quot;检查阴影、裁剪、透明层、图片、复杂动画与合成&quot;]
+    Render --&gt;|&quot;否&quot;| CPU[&quot;检查 Runnable、CPU 核心/频率、其他进程、温度与后台负载&quot;]</pre></div>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>观察</th>
+<th>行动</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>存在 Janky frame</td>
+<td>点击最明显的红色帧，聚焦 main / RenderThread / GPU completion</td>
+</tr>
+<tr>
+<td>B</td>
+<td>main 跨越截止时间</td>
+<td>看 measure/layout/draw、RN UI 提交、GC、Binder 和锁</td>
+</tr>
+<tr>
+<td>C</td>
+<td>JS/Hermes 在此前长时间运行</td>
+<td>使用 RN DevTools Performance 查 JS 长任务和 React Render/Commit</td>
+</tr>
+<tr>
+<td>D</td>
+<td>RenderThread/GPU 过长</td>
+<td>检查阴影、裁剪、透明层、图片和复杂动画</td>
+</tr>
+<tr>
+<td>E</td>
+<td>关键线程 Runnable 但没 CPU</td>
+<td>看 CPU core、频率、其他进程、设备温度与后台负载</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-四类典型结论示例"><a class="heading-anchor" href="#8-4-%E5%9B%9B%E7%B1%BB%E5%85%B8%E5%9E%8B%E7%BB%93%E8%AE%BA%E7%A4%BA%E4%BE%8B" aria-label="链接到本节">#</a>8.4 四类典型结论示例</h3>
+<table>
+<thead>
+<tr>
+<th>结论类型</th>
+<th>可写成这样的结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JS 问题</td>
+<td>滑动事件后 JS 线程连续运行约 35 ms，主要为列表过滤与日志；随后 React Commit 触发批量 UI 更新。</td>
+</tr>
+<tr>
+<td>UI 主线程问题</td>
+<td>掉帧窗口中 main 的 performTraversals / layout 持续约 24 ms，ScrollView 一次性包含大量子 View。</td>
+</tr>
+<tr>
+<td>渲染/GPU 问题</td>
+<td>main 较空闲，但 RenderThread 与 GPU completion 超期；页面存在多层透明蒙层和大面积阴影。</td>
+</tr>
+<tr>
+<td>调度/设备问题</td>
+<td>主线程长时间 Runnable 而非 Running，同期其他进程占用大核且 CPU 频率下降；清理后台并降温后复测正常。</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>不要只写“Trace 显示卡顿”：</strong> 完整结论应包含：问题时间窗口、异常帧、关键线程、线程状态、最长事件、与用户操作的因果关系，以及下一步验证方式。</p>
+</blockquote>
+<hr>
+<h2 id="9-常见问题与故障排查"><a class="heading-anchor" href="#9-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5" aria-label="链接到本节">#</a>9 常见问题与故障排查</h2>
+<p>多数抓取失败并不是 RN 问题，而是构建类型、设备权限、Android 版本或 Trace 配置不匹配。</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>可能原因</th>
+<th>处理方法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Profiler 看不到应用进程</td>
+<td>应用未运行、选择了错误设备、ADB 授权异常</td>
+<td>adb devices；重新启动应用；确认包名和主进程</td>
+</tr>
+<tr>
+<td>没有 Profile with low overhead</td>
+<td>未选择 release、profileable 未启用、AGP/Android Studio 较旧</td>
+<td>切换 release；检查 &lt;profileable&gt;；升级工具链</td>
+</tr>
+<tr>
+<td>没有 Janky frames</td>
+<td>设备低于 Android 12、设备/图形栈不提供相应数据</td>
+<td>查看 Frame Lifecycle、Frames、主线程、RenderThread 和 SurfaceFlinger</td>
+</tr>
+<tr>
+<td>命令提示 category 不存在</td>
+<td>厂商系统不支持该 atrace 分类</td>
+<td>先运行 adb shell atrace --list_categories，再删掉不支持项</td>
+</tr>
+<tr>
+<td>adb pull 权限或路径失败</td>
+<td>系统版本、文件路径或权限限制</td>
+<td>确认输出完整路径；Android 10+ 优先使用 /data/misc/perfetto-traces</td>
+</tr>
+<tr>
+<td>Trace 太大，解析很慢</td>
+<td>录制过长、分类过多、缓冲区过大</td>
+<td>缩短到 5～15 秒，只采集必要类别</td>
+</tr>
+<tr>
+<td>Trace 中找不到业务代码</td>
+<td>未添加自定义标记，或抓取未包含应用 atrace</td>
+<td>加入 androidx.tracing/Trace 标记；命令中使用 -a 包名</td>
+</tr>
+<tr>
+<td>Debug 很卡但 Release 正常</td>
+<td>开发模式、日志、Metro、调试器开销</td>
+<td>以 release/profileable 结果作为真实性能依据</td>
+</tr>
+<tr>
+<td>模拟器与真机差异大</td>
+<td>虚拟 CPU/GPU、宿主机调度与后台负载</td>
+<td>在目标真机复测，并记录刷新率和温度</td>
+</tr>
+<tr>
+<td>JS 线程名称找不到</td>
+<td>RN 架构/版本/运行时差异</td>
+<td>展开应用全部线程，结合 Hermes/React 事件和活动时间识别</td>
+</tr>
+</tbody></table>
+<h3 id="9-1-抓不到应用自定义-slice-的检查顺序"><a class="heading-anchor" href="#9-1-%E6%8A%93%E4%B8%8D%E5%88%B0%E5%BA%94%E7%94%A8%E8%87%AA%E5%AE%9A%E4%B9%89-slice-%E7%9A%84%E6%A3%80%E6%9F%A5%E9%A1%BA%E5%BA%8F" aria-label="链接到本节">#</a>9.1 抓不到应用自定义 Slice 的检查顺序</h3>
+<ol>
+<li><p>确认代码路径确实执行。</p>
+</li>
+<li><p>确认标记名称不超过工具可接受范围且未被异常提前退出。</p>
+</li>
+<li><p>确认使用 -a com.example.app 或在 Perfetto 配置中启用目标应用 ATrace。</p>
+</li>
+<li><p>确认抓取的是安装后实际运行的包名，而不是 namespace 或测试包名。</p>
+</li>
+<li><p>在 Perfetto UI 中搜索标记名称，并展开正确的应用进程。</p>
+</li>
+</ol>
+<hr>
+<h2 id="10-结论模板与检查清单"><a class="heading-anchor" href="#10-%E7%BB%93%E8%AE%BA%E6%A8%A1%E6%9D%BF%E4%B8%8E%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" aria-label="链接到本节">#</a>10 结论模板与检查清单</h2>
+<p>把分析过程固定成模板，可以避免“看了很多轨道但没有形成可验证结论”。</p>
+<h3 id="10-1-trace-分析记录模板"><a class="heading-anchor" href="#10-1-trace-%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95%E6%A8%A1%E6%9D%BF" aria-label="链接到本节">#</a>10.1 Trace 分析记录模板</h3>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">【基本信息】
+应用/版本：
+包名：
+设备/Android：
+刷新率：
+构建类型：release/profileable 或 debug
+Trace 文件：
+
+【复现步骤】
+1.
+2.
+3.
+
+【问题时间窗口】
+用户操作：
+异常帧时间：
+是否 Janky frame：
+
+【关键观察】
+Main Thread：
+RenderThread：
+GPU completion：
+JS/Hermes：
+CPU/频率：
+Binder / I/O / GC：
+
+【初步结论】
+
+【下一步验证】
+1.
+2.
+
+【优化后对比】
+优化前：
+优化后：</code></pre></div>
+<h3 id="10-2-抓取前检查清单"><a class="heading-anchor" href="#10-2-%E6%8A%93%E5%8F%96%E5%89%8D%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" aria-label="链接到本节">#</a>10.2 抓取前检查清单</h3>
+<ul>
+<li><p><input disabled="" type="checkbox"> 设备已通过 adb devices 正常连接</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已记录设备型号、Android 版本和刷新率</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已确认真实 applicationId / 包名</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 真实性能测试使用 release + profileable</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 问题页面已提前打开并完成预热</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 每次只复现一个操作</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 预计录制 5～15 秒</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已决定如何标记用户操作时间</p>
+</li>
+</ul>
+<h3 id="10-3-分析完成检查清单"><a class="heading-anchor" href="#10-3-%E5%88%86%E6%9E%90%E5%AE%8C%E6%88%90%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" aria-label="链接到本节">#</a>10.3 分析完成检查清单</h3>
+<ul>
+<li><p><input disabled="" type="checkbox"> 已定位到明确时间窗口或异常帧</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已比较 Main、RenderThread、GPU 和 JS/Hermes</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已区分 Running、Runnable、Waiting/Blocked</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已检查 CPU core / 频率和系统竞争</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 结论包含具体事件和持续时间，而不是只看总 CPU</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 已提出可验证的代码或 UI 优化方向</p>
+</li>
+<li><p><input disabled="" type="checkbox"> 优化后使用相同设备、场景和构建重新抓取对比</p>
+</li>
+</ul>
+<blockquote>
+<p><strong>最终目标：</strong> Trace 分析不是为了找到“看起来很长的条块”，而是建立一条可验证的因果链：用户操作 → 异常帧 → 关键线程/资源 → 具体任务 → 修改方案 → 同场景复测。</p>
+</blockquote>
+<hr>
+<h2 id="附录-常用命令-术语与官方资料"><a class="heading-anchor" href="#%E9%99%84%E5%BD%95-%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4-%E6%9C%AF%E8%AF%AD%E4%B8%8E%E5%AE%98%E6%96%B9%E8%B5%84%E6%96%99" aria-label="链接到本节">#</a>附录 常用命令、术语与官方资料</h2>
+<h3 id="a-常用命令速查"><a class="heading-anchor" href="#a-%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4%E9%80%9F%E6%9F%A5" aria-label="链接到本节">#</a>A. 常用命令速查</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-powershell"># 设备
+adb devices
+adb shell getprop ro.build.version.sdk
+adb shell getprop ro.product.model
+
+# 包名/进程
+adb shell pidof com.example.app
+adb shell ps -A | findstr keyword
+
+# ATrace 分类
+adb shell atrace --list_categories
+
+# 10 秒 System Trace
+adb shell perfetto -o /data/misc/perfetto-traces/rn_trace.perfetto-trace -t 10s -b 64mb -a com.example.app sched freq view wm am gfx input
+
+# 拉取 Trace
+adb pull /data/misc/perfetto-traces/rn_trace.perfetto-trace .
+
+# Release 运行（按项目实际脚本）
+yarn android --mode release
+npm run android -- --mode release</code></pre></div>
+<h3 id="b-术语速查"><a class="heading-anchor" href="#b-%E6%9C%AF%E8%AF%AD%E9%80%9F%E6%9F%A5" aria-label="链接到本节">#</a>B. 术语速查</h3>
+<table>
+<thead>
+<tr>
+<th>术语</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Slice / Trace Event</td>
+<td>某段代码或系统工作的起止区间</td>
+</tr>
+<tr>
+<td>Jank</td>
+<td>帧未按预测显示时间完成，造成不稳定帧率或延迟</td>
+</tr>
+<tr>
+<td>Frame deadline</td>
+<td>当前帧需要完成的调度截止时间</td>
+</tr>
+<tr>
+<td>Choreographer#doFrame</td>
+<td>Android UI 每帧调度入口之一</td>
+</tr>
+<tr>
+<td>performTraversals</td>
+<td>View 树 measure/layout/draw 流程入口之一</td>
+</tr>
+<tr>
+<td>RenderThread</td>
+<td>负责硬件加速渲染相关工作的线程</td>
+</tr>
+<tr>
+<td>SurfaceFlinger</td>
+<td>Android 系统显示合成服务</td>
+</tr>
+<tr>
+<td>Binder</td>
+<td>Android 跨进程通信机制</td>
+</tr>
+<tr>
+<td>ATrace</td>
+<td>Android 用户态 Trace 标注机制</td>
+</tr>
+<tr>
+<td>ftrace</td>
+<td>Linux 内核级跟踪机制，常用于调度和内核事件</td>
+</tr>
+<tr>
+<td>Perfetto</td>
+<td>Android/Linux 系统跟踪、可视化与 SQL 分析工具套件</td>
+</tr>
+</tbody></table>
+<h3 id="c-官方资料"><a class="heading-anchor" href="#c-%E5%AE%98%E6%96%B9%E8%B5%84%E6%96%99" aria-label="链接到本节">#</a>C. 官方资料</h3>
+<ol>
+<li><p><a href="https://developer.android.com/studio/profile">Android Developers：Profile your app performance</a></p>
+</li>
+<li><p><a href="https://developer.android.com/studio/profile/cpu-profiler">Android Developers：Record a system trace</a></p>
+</li>
+<li><p><a href="https://developer.android.com/studio/profile/jank-detection">Android Developers：UI jank detection</a></p>
+</li>
+<li><p><a href="https://developer.android.com/topic/performance/tracing">Android Developers：Overview of system tracing</a></p>
+</li>
+<li><p><a href="https://developer.android.com/tools/perfetto">Android Developers：perfetto command-line tool</a></p>
+</li>
+<li><p><a href="https://developer.android.com/topic/performance/tracing/custom-events">Android Developers：Define custom trace events</a></p>
+</li>
+<li><p><a href="https://perfetto.dev/docs/getting-started/system-tracing">Perfetto Docs：Recording system traces with Perfetto</a></p>
+</li>
+<li><p><a href="https://reactnative.dev/docs/profiling">React Native：Profiling</a></p>
+</li>
+<li><p><a href="https://reactnative.dev/docs/react-native-devtools">React Native：React Native DevTools</a></p>
+</li>
+<li><p><a href="https://reactnative.dev/docs/running-on-device">React Native：Running On Device</a></p>
+</li>
+</ol>
+<blockquote>
+<p><strong>版本说明：</strong> Android Studio、Perfetto 和 React Native DevTools 会持续更新，菜单名称和可用轨道可能随版本变化。遇到差异时，以当前工具界面和对应版本官方文档为准。</p>
+</blockquote>
+
+        </article>
+        <nav class="doc-pagination" aria-label="文档导航">
+          <a href="index.html"><small>返回目录</small><strong>Android 文档</strong></a>
+          <span></span>
+        </nav>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#%E6%96%87%E6%A1%A3%E5%AE%9A%E4%BD%8D" data-level="2">文档定位</a>
+<a href="#%E7%9B%AE%E5%BD%95-%E6%96%87%E6%A1%A3%E7%BB%93%E6%9E%84" data-level="2">目录 文档结构</a>
+<a href="#1-%E5%85%88%E8%AE%A4%E8%AF%86-android-trace" data-level="2">1 先认识 Android Trace</a>
+<a href="#1-1-%E6%9C%AC%E6%96%87%E4%B8%BB%E8%A6%81%E5%88%86%E6%9E%90%E5%93%AA%E7%A7%8D-trace" data-level="3">1.1 本文主要分析哪种 Trace</a>
+<a href="#1-2-%E4%B8%80%E5%B8%A7%E6%9C%89%E5%A4%9A%E5%B0%91%E6%97%B6%E9%97%B4%E9%A2%84%E7%AE%97" data-level="3">1.2 一帧有多少时间预算</a>
+<a href="#1-3-rn-android-%E5%B8%B8%E8%A7%81%E7%BA%BF%E7%A8%8B" data-level="3">1.3 RN Android 常见线程</a>
+<a href="#2-%E6%8A%93%E5%8F%96%E5%89%8D%E5%87%86%E5%A4%87" data-level="2">2 抓取前准备</a>
+<a href="#2-1-%E5%9F%BA%E7%A1%80%E7%8E%AF%E5%A2%83%E6%A3%80%E6%9F%A5" data-level="3">2.1 基础环境检查</a>
+<a href="#2-2-%E6%9F%A5%E6%89%BE%E5%BA%94%E7%94%A8%E5%8C%85%E5%90%8D" data-level="3">2.2 查找应用包名</a>
+<a href="#2-3-%E4%BD%BF%E7%94%A8%E6%8E%A5%E8%BF%91%E7%9C%9F%E5%AE%9E%E6%80%A7%E8%83%BD%E7%9A%84%E6%9E%84%E5%BB%BA" data-level="3">2.3 使用接近真实性能的构建</a>
+<a href="#2-4-%E8%AE%BE%E8%AE%A1%E5%A4%8D%E7%8E%B0%E5%9C%BA%E6%99%AF" data-level="3">2.4 设计复现场景</a>
+<a href="#3-%E6%96%B9%E6%A1%88%E4%B8%80-android-studio-%E6%8A%93-system-trace" data-level="2">3 方案一：Android Studio 抓 System Trace</a>
+<a href="#3-1-%E5%90%AF%E5%8A%A8-profileable-%E5%BA%94%E7%94%A8" data-level="3">3.1 启动 Profileable 应用</a>
+<a href="#3-2-%E5%BC%80%E5%A7%8B%E5%BD%95%E5%88%B6" data-level="3">3.2 开始录制</a>
+<a href="#3-3-%E5%AF%BC%E5%87%BA%E4%B8%8E%E9%87%8D%E6%96%B0%E6%89%93%E5%BC%80" data-level="3">3.3 导出与重新打开</a>
+<a href="#3-4-android-%E7%89%88%E6%9C%AC%E5%B7%AE%E5%BC%82" data-level="3">3.4 Android 版本差异</a>
+<a href="#4-%E6%96%B9%E6%A1%88%E4%BA%8C-adb-perfetto-%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8A%93%E5%8F%96" data-level="2">4 方案二：ADB + Perfetto 命令行抓取</a>
+<a href="#4-1-%E5%85%88%E6%9F%A5%E7%9C%8B%E8%AE%BE%E5%A4%87%E6%94%AF%E6%8C%81%E7%9A%84-atrace-%E5%88%86%E7%B1%BB" data-level="3">4.1 先查看设备支持的 ATrace 分类</a>
+<a href="#4-2-%E7%9B%B4%E6%8E%A5%E4%BD%BF%E7%94%A8-adb-shell-perfetto-%E8%BD%BB%E9%87%8F%E6%A8%A1%E5%BC%8F" data-level="3">4.2 直接使用 adb shell perfetto（轻量模式）</a>
+<a href="#4-3-%E4%BD%BF%E7%94%A8-perfetto-%E5%AE%98%E6%96%B9%E8%BE%85%E5%8A%A9%E8%84%9A%E6%9C%AC" data-level="3">4.3 使用 Perfetto 官方辅助脚本</a>
+<a href="#4-4-%E5%9C%A8-perfetto-ui-%E6%89%93%E5%BC%80" data-level="3">4.4 在 Perfetto UI 打开</a>
+<a href="#5-%E5%A6%82%E4%BD%95%E7%9C%8B-trace-%E4%BB%8E%E6%8E%89%E5%B8%A7%E5%88%B0%E6%A0%B9%E5%9B%A0" data-level="2">5 如何看 Trace：从掉帧到根因</a>
+<a href="#5-1-%E7%AC%AC%E4%B8%80%E6%AD%A5-%E5%AE%9A%E4%BD%8D%E9%97%AE%E9%A2%98%E5%8F%91%E7%94%9F%E7%9A%84%E6%97%B6%E9%97%B4%E7%AA%97%E5%8F%A3" data-level="3">5.1 第一步：定位问题发生的时间窗口</a>
+<a href="#5-2-%E7%AC%AC%E4%BA%8C%E6%AD%A5-%E7%82%B9%E5%87%BB-janky-frame" data-level="3">5.2 第二步：点击 Janky frame</a>
+<a href="#5-3-%E7%AC%AC%E4%B8%89%E6%AD%A5-%E5%88%86%E6%9E%90-main-ui-thread" data-level="3">5.3 第三步：分析 Main / UI Thread</a>
+<a href="#5-4-%E7%AC%AC%E5%9B%9B%E6%AD%A5-%E5%88%86%E6%9E%90-renderthread-%E4%B8%8E-gpu" data-level="3">5.4 第四步：分析 RenderThread 与 GPU</a>
+<a href="#5-5-%E7%AC%AC%E4%BA%94%E6%AD%A5-%E7%9C%8B%E7%BA%BF%E7%A8%8B%E7%8A%B6%E6%80%81%E4%B8%8E-cpu-%E8%B0%83%E5%BA%A6" data-level="3">5.5 第五步：看线程状态与 CPU 调度</a>
+<a href="#5-6-%E5%B8%B8%E8%A7%81-trace-%E6%A8%A1%E5%BC%8F%E9%80%9F%E6%9F%A5" data-level="3">5.6 常见 Trace 模式速查</a>
+<a href="#6-react-native-%E4%B8%93%E9%A1%B9%E5%88%86%E6%9E%90" data-level="2">6 React Native 专项分析</a>
+<a href="#6-1-%E8%AF%86%E5%88%AB-js-hermes-%E7%BA%BF%E7%A8%8B" data-level="3">6.1 识别 JS / Hermes 线程</a>
+<a href="#6-2-rn-%E5%B8%B8%E8%A7%81-js-%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98" data-level="3">6.2 RN 常见 JS 性能问题</a>
+<a href="#6-3-rn-devtools-performance-rn-0-83" data-level="3">6.3 RN DevTools Performance（RN 0.83+）</a>
+<a href="#6-4-react-profiler-%E5%BA%94%E7%9C%8B%E4%BB%80%E4%B9%88" data-level="3">6.4 React Profiler 应看什么</a>
+<a href="#7-%E6%B7%BB%E5%8A%A0%E8%87%AA%E5%AE%9A%E4%B9%89-trace-%E6%A0%87%E8%AE%B0" data-level="2">7 添加自定义 Trace 标记</a>
+<a href="#7-1-kotlin-androidx-tracing" data-level="3">7.1 Kotlin：androidx.tracing</a>
+<a href="#7-2-java-kotlin-android-os-trace" data-level="3">7.2 Java / Kotlin：android.os.Trace</a>
+<a href="#7-3-javascript-user-timing-rn-0-83" data-level="3">7.3 JavaScript：User Timing（RN 0.83+）</a>
+<a href="#7-4-%E6%9C%80%E6%9C%89%E4%BB%B7%E5%80%BC%E7%9A%84%E6%A0%87%E8%AE%B0%E4%BD%8D%E7%BD%AE" data-level="3">7.4 最有价值的标记位置</a>
+<a href="#8-%E5%AE%8C%E6%95%B4%E5%AE%9E%E6%88%98-scrollview-%E5%8D%A1%E9%A1%BF" data-level="2">8 完整实战：ScrollView 卡顿</a>
+<a href="#8-1-%E5%9C%BA%E6%99%AF%E5%AE%9A%E4%B9%89" data-level="3">8.1 场景定义</a>
+<a href="#8-2-%E6%8A%93%E5%8F%96%E6%AD%A5%E9%AA%A4" data-level="3">8.2 抓取步骤</a>
+<a href="#8-3-%E5%88%86%E6%9E%90%E5%86%B3%E7%AD%96%E6%A0%91" data-level="3">8.3 分析决策树</a>
+<a href="#8-4-%E5%9B%9B%E7%B1%BB%E5%85%B8%E5%9E%8B%E7%BB%93%E8%AE%BA%E7%A4%BA%E4%BE%8B" data-level="3">8.4 四类典型结论示例</a>
+<a href="#9-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5" data-level="2">9 常见问题与故障排查</a>
+<a href="#9-1-%E6%8A%93%E4%B8%8D%E5%88%B0%E5%BA%94%E7%94%A8%E8%87%AA%E5%AE%9A%E4%B9%89-slice-%E7%9A%84%E6%A3%80%E6%9F%A5%E9%A1%BA%E5%BA%8F" data-level="3">9.1 抓不到应用自定义 Slice 的检查顺序</a>
+<a href="#10-%E7%BB%93%E8%AE%BA%E6%A8%A1%E6%9D%BF%E4%B8%8E%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" data-level="2">10 结论模板与检查清单</a>
+<a href="#10-1-trace-%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95%E6%A8%A1%E6%9D%BF" data-level="3">10.1 Trace 分析记录模板</a>
+<a href="#10-2-%E6%8A%93%E5%8F%96%E5%89%8D%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" data-level="3">10.2 抓取前检查清单</a>
+<a href="#10-3-%E5%88%86%E6%9E%90%E5%AE%8C%E6%88%90%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95" data-level="3">10.3 分析完成检查清单</a>
+<a href="#%E9%99%84%E5%BD%95-%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4-%E6%9C%AF%E8%AF%AD%E4%B8%8E%E5%AE%98%E6%96%B9%E8%B5%84%E6%96%99" data-level="2">附录 常用命令、术语与官方资料</a>
+<a href="#a-%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4%E9%80%9F%E6%9F%A5" data-level="3">A. 常用命令速查</a>
+<a href="#b-%E6%9C%AF%E8%AF%AD%E9%80%9F%E6%9F%A5" data-level="3">B. 术语速查</a>
+<a href="#c-%E5%AE%98%E6%96%B9%E8%B5%84%E6%96%99" data-level="3">C. 官方资料</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../assets/vendor/mermaid.min.js"></script>
+    <script src="../../assets/site.js"></script>
+  </body>
+</html>

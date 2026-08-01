@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="RNOH、C++ 与工程实践知识库。">
+    <meta name="description" content="Android、RNOH、C++ 与工程实践知识库。">
     <title>Engineering Notes · 工程实践知识库</title>
     <link rel="stylesheet" href="assets/styles.css">
   </head>
@@ -17,6 +17,7 @@
         </a>
         <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
         <nav class="site-nav" data-site-nav aria-label="主导航">
+          <a href="docs/android/index.html">Android</a>
           <a href="docs/rnoh/index.html">RNOH</a>
           <a href="docs/cpp/index.html">C++</a>
           <a href="skills/index.html">Skills</a>
@@ -30,11 +31,12 @@
         <p class="eyebrow">Engineering knowledge base</p>
         <h1>把排查过程，沉淀成可复用的工程认知。</h1>
         <p class="hero__lead">
-          记录 RNOH、C++、性能分析与组件机制。每篇文档尽量从问题背景出发，
+          记录 Android、RNOH、C++、性能分析与组件机制。每篇文档尽量从问题背景出发，
           给出完整调用链、职责边界、源码位置和可视化流程。
         </p>
         <div class="hero__actions">
-          <a class="button button--primary" href="docs/rnoh/components/scrollview/index.html">开始阅读 ScrollView</a>
+          <a class="button button--primary" href="docs/android/react-native-android-trace.html">阅读 Android Trace 指南</a>
+          <a class="button" href="docs/rnoh/components/scrollview/index.html">阅读 ScrollView 专题</a>
           <a class="button" href="docs/index.html">浏览全部文档</a>
           <a class="button" href="markdown/index.md">Markdown 源文档</a>
         </div>
@@ -48,15 +50,21 @@
           </div>
           <p>按技术领域组织内容，再从功能、性能和组件维度逐层深入。</p>
         </div>
-        <div class="card-grid">
+        <div class="card-grid card-grid--three">
+          <a class="topic-card" href="docs/android/index.html">
+            <span class="topic-card__index">01 / MOBILE</span>
+            <h3>Android</h3>
+            <p>系统跟踪、渲染性能、ADB / Perfetto 与 React Native Android 专项分析。</p>
+            <span class="topic-card__meta">RN Android Trace 实战指南已上线</span>
+          </a>
           <a class="topic-card" href="docs/rnoh/index.html">
-            <span class="topic-card__index">01 / PLATFORM</span>
+            <span class="topic-card__index">02 / PLATFORM</span>
             <h3>RNOH</h3>
             <p>React Native OpenHarmony 的渲染、挂载、组件、事件与性能机制。</p>
             <span class="topic-card__meta">3 个二级目录 · ScrollView 专题已上线</span>
           </a>
           <a class="topic-card" href="docs/cpp/index.html">
-            <span class="topic-card__index">02 / LANGUAGE</span>
+            <span class="topic-card__index">03 / LANGUAGE</span>
             <h3>C++</h3>
             <p>语言特性、工程实践、调试方法和 native 基础能力。</p>
             <span class="topic-card__meta">目录已建立 · 持续补充</span>
