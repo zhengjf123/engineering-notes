@@ -4,6 +4,10 @@
 
 > 文档版本：2026-07（根据原始 Word 文档整理）。本页保留原文的流程、命令、表格、检查清单和官方资料链接，并将关键流程补充为 Mermaid 图，方便网页端阅读。
 
+> **文档系列：** RN Android 性能分析手册  
+> **主题：** System Trace · Perfetto  
+> **适用读者：** 已具备 React Native Android 本地运行环境的开发者
+
 ```mermaid
 flowchart LR
     Prepare["1. 准备"] --> Record["2. 录制"]
