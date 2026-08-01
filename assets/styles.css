@@ -508,6 +508,21 @@ button {
   padding: 34px 0 96px;
 }
 
+[data-doc-layout="focus"] .doc-shell {
+  width: min(calc(100% - 40px), 1180px);
+  grid-template-columns: minmax(0, 1080px);
+  gap: 0;
+}
+
+[data-doc-layout="focus"] .doc-sidebar,
+[data-doc-layout="focus"] .doc-toc {
+  display: none;
+}
+
+[data-doc-layout="focus"] .doc-main {
+  width: 100%;
+}
+
 .doc-sidebar,
 .doc-toc {
   position: sticky;
@@ -867,6 +882,50 @@ button {
   color: var(--brand-strong);
 }
 
+.doc-layout-toggle {
+  position: fixed;
+  right: 24px;
+  bottom: 78px;
+  z-index: 30;
+  min-width: 112px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.doc-layout-toggle::before {
+  content: "⛶";
+  color: var(--brand-strong);
+  font-size: 14px;
+}
+
+.doc-layout-toggle:hover {
+  border-color: var(--brand);
+  color: var(--brand-strong);
+  transform: translateY(-1px);
+}
+
+.doc-layout-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--brand) 62%, var(--line));
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+
 .back-to-top {
   position: fixed;
   right: 24px;
@@ -985,6 +1044,11 @@ button {
 
   .markdown-body {
     border-radius: 18px;
+  }
+
+  .doc-layout-toggle {
+    right: 16px;
+    bottom: 70px;
   }
 }
 

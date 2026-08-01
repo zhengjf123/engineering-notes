@@ -56,6 +56,55 @@
     });
   }
 
+  const docShell = document.querySelector(".doc-shell");
+  if (document.body.classList.contains("doc-page") && docShell) {
+    const docLayoutKey = "engineering-notes-doc-layout";
+    const layoutButton = document.createElement("button");
+    layoutButton.className = "doc-layout-toggle";
+    layoutButton.type = "button";
+    layoutButton.setAttribute("data-doc-layout-toggle", "");
+    document.body.appendChild(layoutButton);
+
+    function getStoredDocLayout() {
+      try {
+        return localStorage.getItem(docLayoutKey);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function setStoredDocLayout(layout) {
+      try {
+        localStorage.setItem(docLayoutKey, layout);
+      } catch (_) {
+        // file:// 下部分浏览器可能禁止存储，当前页面布局仍可正常切换。
+      }
+    }
+
+    function applyDocLayout(layout) {
+      const isFocus = layout === "focus";
+      if (isFocus) {
+        root.dataset.docLayout = "focus";
+      } else {
+        delete root.dataset.docLayout;
+      }
+      layoutButton.setAttribute("aria-pressed", String(isFocus));
+      layoutButton.setAttribute(
+        "aria-label",
+        isFocus ? "显示左右侧导航栏" : "隐藏左右侧导航栏，放大正文"
+      );
+      layoutButton.textContent = isFocus ? "显示左右栏" : "专注阅读";
+    }
+
+    applyDocLayout(getStoredDocLayout() === "focus" ? "focus" : "default");
+
+    layoutButton.addEventListener("click", function () {
+      const nextLayout = root.dataset.docLayout === "focus" ? "default" : "focus";
+      setStoredDocLayout(nextLayout);
+      applyDocLayout(nextLayout);
+    });
+  }
+
   function fallbackCopy(text, button) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
