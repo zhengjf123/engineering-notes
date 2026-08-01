@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RNOH 0.72 Modal 路由切换后可见但点击无响应的问题分析、根因定位与原生侧 Patch。">
+    <title>RNOH 问题 01：Modal 路由切换后点击无响应 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../assets/styles.css">
+  </head>
+  <body class="doc-page">
+    <a class="skip-link" href="#article">跳到正文</a>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav aria-label="主导航"><a href="../../android/index.html">Android</a>
+          <a href="../index.html" aria-current="page">RNOH</a>
+          <a href="../../cpp/index.html">C++</a>
+          <a href="../../../skills/index.html">Skills</a>
+        </nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="doc-sidebar" aria-label="RNOH 问题目录">
+        <div>
+          <p class="side-label">RNOH 问题</p>
+          <nav class="side-nav">
+            <a href="index.html">问题目录</a>
+            <a href="modal-click-no-response.html" aria-current="page">Modal 点击无响应</a>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="doc-main">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <a href="../../../index.html">首页</a><span aria-hidden="true">/</span>
+          <a href="../../index.html">文档</a><span aria-hidden="true">/</span>
+          <a href="../index.html">RNOH</a><span aria-hidden="true">/</span>
+          <a href="index.html">问题</a><span aria-hidden="true">/</span>
+          <span>Modal 点击无响应</span>
+        </nav>
+        <div class="doc-banner">
+          <span><strong>问题案例</strong> · RN 0.72 / RNOH Modal 触摸分发</span>
+          <span><a href="../../../markdown/rnoh/issues/modal-click-no-response.md">Markdown 源文件</a> · <a href="index.html">返回问题目录</a></span>
+        </div>
+        <article class="markdown-body" id="article">
+<h1 id="rnoh-问题-01-modal-路由切换后点击无响应">RNOH 问题 01：Modal 路由切换后点击无响应</h1>
+<blockquote>
+<p><strong>问题来源</strong>：Codex 历史对话《modal点击无响应》（<code>D:\rn72_0724</code>）。<br><strong>适用范围</strong>：鸿蒙 RN 0.72 / RNOH 0.72 当前分支；高版本可能存在实现差异，请以对应分支源码为准。<br><strong>问题状态</strong>：已定位根因，并形成 RNOH 原生侧 Patch；应用侧路由卸载 Hook 仅作为临时绕过方案。  </p>
+</blockquote>
+<p>本文将问题现象、复现路径、根因、当前 Patch 以及验证边界集中整理，便于后续按“现象 → 触摸链路 → 源码位置 → 修复方案”检索。</p>
+<h2 id="问题卡片"><a class="heading-anchor" href="#%E9%97%AE%E9%A2%98%E5%8D%A1%E7%89%87" aria-label="链接到本节">#</a>问题卡片</h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>现象</td>
+<td>A 页面保持 <code>visible=true</code> 的 Modal，跳转 B 页面后仍可见，但内部按钮点击无响应</td>
+</tr>
+<tr>
+<td>平台差异</td>
+<td>Android 同条件下可点击；鸿蒙 RNOH 0.72 点击事件无法送达 JS</td>
+</tr>
+<tr>
+<td>典型组件</td>
+<td><code>FuzzyConsignmentDialog</code>、<code>DotDialog</code>、<code>CheckProductMsgDialog</code></td>
+</tr>
+<tr>
+<td>业务影响</td>
+<td>弹窗覆盖新页面且无法操作，可能阻断收件流程</td>
+</tr>
+<tr>
+<td>关键边界</td>
+<td>Modal 已在独立 ArkUI Dialog 中显示，但 C++ 逻辑父链仍挂在 A 页面</td>
+</tr>
+</tbody></table>
+<h2 id="最短结论"><a class="heading-anchor" href="#%E6%9C%80%E7%9F%AD%E7%BB%93%E8%AE%BA" aria-label="链接到本节">#</a>最短结论</h2>
+<p>鸿蒙 Modal 的独立 Dialog 已经收到触摸，但 <code>ModalHostViewComponentInstance</code> 复用了普通页面组件的父链触摸判断，错误继承 A 页的 <code>pointerEvents=&quot;none&quot;</code>。因此触摸在 Modal 根节点被判定为不可命中，根本没有继续遍历到内部 <code>Pressable</code>。</p>
+<p>修复的核心不是强制 Modal 随路由隐藏，而是让独立 Dialog 中的 Modal 以自身 <code>pointerEvents</code> 作为触摸边界；页面树中的 <code>m_virtualNode</code> 仍保留原有祖先感知的拦截行为。</p>
+<p>本文档对应 RNOH 0.72 当前仓库，解决以下问题：</p>
+<blockquote>
+<p>A 页面创建并保持 <code>visible=true</code> 的 RN <code>Modal</code>，快速跳转到 B 页面后，Modal 仍覆盖在 B 页面上，但 Modal 内按钮点击事件无法送达 JS。Android 在相同条件下可以正常点击。</p>
+</blockquote>
+<h2 id="第一部分-当前方案-patch"><a class="heading-anchor" href="#%E7%AC%AC%E4%B8%80%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88-patch" aria-label="链接到本节">#</a>第一部分：当前方案 Patch</h2>
+<p>涉及文件：</p>
+<ul>
+<li><code>tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.h</code></li>
+<li><code>tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.cpp</code></li>
+</ul>
+<div class="code-frame"><span class="code-frame__label">diff</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-diff">diff --git a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.cpp b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.cpp
+index 45dfcddeb..5c0c5c20a 100644
+--- a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.cpp
++++ b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.cpp
+@@ -205,6 +205,35 @@ void ModalHostViewComponentInstance::onChildRemoved(
+   m_rootCustomNode.removeChild(childComponentInstance-&gt;getLocalRootArkUINode());
+ };
+
++// Modal content is dispatched from an independent ArkUI dialog, so its touch
++// root must not inherit pointerEvents from the page behind the dialog.
++bool ModalHostViewComponentInstance::canHandleTouch() const {
++  return m_props == nullptr ||
++      m_props-&gt;pointerEvents == facebook::react::PointerEventsMode::Auto ||
++      m_props-&gt;pointerEvents == facebook::react::PointerEventsMode::BoxOnly;
++}
++
++bool ModalHostViewComponentInstance::canChildrenHandleTouch() const {
++  return m_props == nullptr ||
++      m_props-&gt;pointerEvents == facebook::react::PointerEventsMode::Auto ||
++      m_props-&gt;pointerEvents == facebook::react::PointerEventsMode::BoxNone;
++}
++
++void ModalHostViewComponentInstance::onArkUINodeTouchIntercept(
++    const ArkUI_UIInputEvent* event) {
++  // m_virtualNode stays in the page's ArkUI tree. Preserve its original,
++  // ancestor-aware intercept behavior; only the dialog is a new touch root.
++  auto parent = getParent().lock();
++  if (parent &amp;&amp; !parent-&gt;canChildrenHandleTouch()) {
++    auto mode = IsAtLeastApi20()
++        ? HitTestMode::HTM_BLOCK_DESCENDANTS
++        : HitTestMode::HTM_NONE;
++    OH_ArkUI_PointerEvent_SetInterceptHitTestMode(event, mode);
++    return;
++  }
++  CppComponentInstance::onArkUINodeTouchIntercept(event);
++}
++
+ void ModalHostViewComponentInstance::onFinalizeUpdates() {
+   // only show modal after the screen size has been set and processed by RN
+   auto isScreenSizeSet = m_state &amp;&amp; m_state-&gt;getData().screenSize.height != 0 &amp;&amp;
+diff --git a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.h b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.h
+index ef007aaf4..f448a9359 100644
+--- a/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.h
++++ b/tester/harmony/react_native_openharmony/src/main/cpp/RNOHCorePackage/ComponentInstances/ModalHostViewComponentInstance.h
+@@ -60,6 +60,9 @@ class ModalHostViewComponentInstance
+   void onChildRemoved(
+       ComponentInstance::Shared const&amp; childComponentInstance) override;
+
++  bool canHandleTouch() const override;
++  bool canChildrenHandleTouch() const override;
++
+   void onFinalizeUpdates() override;
+
+   void showDialog();
+@@ -73,6 +76,10 @@ class ModalHostViewComponentInstance
+   // ArkTSMessageHub::Observer
+   void onMessageReceived(ArkTSMessage const&amp; message) override;
+
++ protected:
++  void onArkUINodeTouchIntercept(
++      const ArkUI_UIInputEvent* event) override;
++
+   friend class ModalHostTouchHandler;
+ };
+-} // namespace rnoh
+\ No newline at end of file
++} // namespace rnoh</code></pre></div>
+<p>改动仅位于 Modal 组件实例。公共 <code>CppComponentInstance</code>、<code>TouchEventDispatcher</code>、Dialog 生命周期和事件监听流程均保持原实现。</p>
+<h2 id="第二部分-问题原因"><a class="heading-anchor" href="#%E7%AC%AC%E4%BA%8C%E9%83%A8%E5%88%86-%E9%97%AE%E9%A2%98%E5%8E%9F%E5%9B%A0" aria-label="链接到本节">#</a>第二部分：问题原因</h2>
+<h3 id="2-1-modal-在鸿蒙端存在两套父子关系"><a class="heading-anchor" href="#2-1-modal-%E5%9C%A8%E9%B8%BF%E8%92%99%E7%AB%AF%E5%AD%98%E5%9C%A8%E4%B8%A4%E5%A5%97%E7%88%B6%E5%AD%90%E5%85%B3%E7%B3%BB" aria-label="链接到本节">#</a>2.1 Modal 在鸿蒙端存在两套父子关系</h3>
+<p><code>ModalHostViewComponentInstance</code> 同时存在两种关系：</p>
+<ol>
+<li><p><strong>React/C++ 逻辑树关系</strong></p>
+<p>Modal 仍然是 A 页面组件树中的后代，<code>m_parent</code> 指向 A 页面内的 View。</p>
+</li>
+<li><p><strong>ArkUI 实际显示和输入关系</strong></p>
+<p>Modal 内容没有显示在 A 页普通节点中，而是被插入 <code>m_rootCustomNode</code>，再由独立 <code>ArkUIDialogHandler</code> 显示：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">m_rootCustomNode.insertChild(
+    childComponentInstance-&gt;getLocalRootArkUINode(), index);
+
+m_dialogHandler.setContent(m_rootStackNode);
+m_dialogHandler.show();</code></pre></div>
+<p><code>ModalHostTouchHandler</code> 直接监听 <code>m_rootCustomNode</code>，收到 ArkUI 触摸后，以 Modal 自身作为 <code>TouchEventDispatcher</code> 的根节点：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">ModalHostTouchHandler(ModalHostViewComponentInstance* rootView)
+    : UIInputEventHandler(rootView-&gt;m_rootCustomNode), m_rootView(rootView) {}
+
+void onTouchEvent(ArkUI_UIInputEvent* event) override {
+  m_touchEventDispatcher.dispatchTouchEvent(
+      event, m_rootView-&gt;shared_from_this());
+}</code></pre></div>
+</li>
+</ol>
+<p>因此，从视觉和原生输入归属看，Modal 已经是一个独立 Dialog；但从 RNOH 的 C++ 逻辑树看，它仍然挂在 A 页面下面。</p>
+<h3 id="2-2-原通用触摸判断错误继承了-a-页状态"><a class="heading-anchor" href="#2-2-%E5%8E%9F%E9%80%9A%E7%94%A8%E8%A7%A6%E6%91%B8%E5%88%A4%E6%96%AD%E9%94%99%E8%AF%AF%E7%BB%A7%E6%89%BF%E4%BA%86-a-%E9%A1%B5%E7%8A%B6%E6%80%81" aria-label="链接到本节">#</a>2.2 原通用触摸判断错误继承了 A 页状态</h3>
+<p><code>CppComponentInstance</code> 的通用实现会先递归检查逻辑父节点：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">bool canHandleTouch() const override {
+  auto parent = m_parent.lock();
+  if (parent &amp;&amp; !parent-&gt;canChildrenHandleTouch()) {
+    return false;
+  }
+  // 再判断组件自身 pointerEvents
+}
+
+bool canChildrenHandleTouch() const override {
+  auto parent = m_parent.lock();
+  if (parent &amp;&amp; !parent-&gt;canChildrenHandleTouch()) {
+    return false;
+  }
+  // 再判断组件自身 pointerEvents
+}</code></pre></div>
+<p>React Navigation 从 A 跳转到 B 后，为了让 A 页面失去交互能力，会把 A 页面相关容器设置为不允许子节点接收触摸，例如 <code>pointerEvents=&quot;none&quot;</code>。</p>
+<p>此时 Modal 虽然已经显示在独立 ArkUI Dialog 中，但原通用判断仍沿着 <code>m_parent</code> 回到 A 页面：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">Modal
+  → A 页面内 View
+    → pointerEvents = none
+      → canChildrenHandleTouch() = false
+        → Modal canHandleTouch() = false
+        → Modal canChildrenHandleTouch() = false</code></pre></div>
+<p><code>TouchEventDispatcher</code> 在 Modal 根节点处就得到两个 <code>false</code>，因此不会继续查找 Modal 内部的 <code>Pressable</code> 或 <code>TouchableOpacity</code>：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">bool canHandleTouch = target-&gt;canHandleTouch() &amp;&amp; ...;
+bool canChildrenHandleTouch = target-&gt;canChildrenHandleTouch() &amp;&amp; ...;
+
+if (canChildrenHandleTouch) {
+  // 只有为 true 才遍历 Modal 子节点
+}</code></pre></div>
+<h3 id="2-3-日志证据"><a class="heading-anchor" href="#2-3-%E6%97%A5%E5%BF%97%E8%AF%81%E6%8D%AE" aria-label="链接到本节">#</a>2.3 日志证据</h3>
+<p>正常场景日志：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">modal_touch_normal.log</code></pre></div>
+<p>关键结果：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">Modal parent = RootView
+Modal canHandleTouch = 1
+Modal canChildrenHandleTouch = 1
+target-hit
+Modal 关闭按钮 onPress 已送达 JS</code></pre></div>
+<p>异常场景日志：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">modal_touch_abnormal.log</code></pre></div>
+<p>关键结果：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">Modal parent = A 页面 View
+A 页面祖先 pointerEvents = none
+Modal canHandleTouch = 0
+Modal canChildrenHandleTouch = 0
+target-miss</code></pre></div>
+<p>异常日志同时证明 ArkUI 的触摸事件已经到达 <code>ModalHostTouchHandler</code>。因此问题不是：</p>
+<ul>
+<li>ArkUI Dialog 没收到触摸；</li>
+<li>按钮没有注册 JS <code>onPress</code>；</li>
+<li>触摸被 B 页面先消费；</li>
+<li>Modal 视觉层已经失效。</li>
+</ul>
+<p>真正丢失发生在：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">ArkUI Dialog 已收到触摸
+  → RNOH TouchEventDispatcher 开始命中
+    → Modal 错误继承 A 页 pointerEvents=none
+      → 在 Modal 根节点直接 target-miss
+        → 事件没有送达 JS</code></pre></div>
+<h3 id="2-4-最终根因"><a class="heading-anchor" href="#2-4-%E6%9C%80%E7%BB%88%E6%A0%B9%E5%9B%A0" aria-label="链接到本节">#</a>2.4 最终根因</h3>
+<p>根因不是简单的“Modal 视觉层与触摸层不同步”，更精确的结论是：</p>
+<blockquote>
+<p>鸿蒙 Modal 的内容和原生触摸入口已经位于独立 ArkUI Dialog 中，但 <code>ModalHostViewComponentInstance</code> 仍复用了普通页面组件的触摸判断，错误地沿 React 逻辑父链继承 A 页的 <code>pointerEvents</code>。路由切换把 A 页设置为不可交互后，独立 Dialog 的 Modal 根也被错误判定为不可处理触摸，导致命中在根节点终止。</p>
+</blockquote>
+<p>Android 和 iOS 的 Modal 内容同样使用独立原生触摸根，外部页面 View 的 <code>pointerEvents</code> 不会跨越 Dialog 或 ViewController 去禁用 Modal 内容。因此鸿蒙原行为与 RN 其他平台的 Modal 输入边界不一致。</p>
+<h2 id="第三部分-当前方案如何解决此问题"><a class="heading-anchor" href="#%E7%AC%AC%E4%B8%89%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3%E6%AD%A4%E9%97%AE%E9%A2%98" aria-label="链接到本节">#</a>第三部分：当前方案如何解决此问题</h2>
+<h3 id="3-1-在-dialog-触摸根处终止外部页面的-pointerevents-继承"><a class="heading-anchor" href="#3-1-%E5%9C%A8-dialog-%E8%A7%A6%E6%91%B8%E6%A0%B9%E5%A4%84%E7%BB%88%E6%AD%A2%E5%A4%96%E9%83%A8%E9%A1%B5%E9%9D%A2%E7%9A%84-pointerevents-%E7%BB%A7%E6%89%BF" aria-label="链接到本节">#</a>3.1 在 Dialog 触摸根处终止外部页面的 <code>pointerEvents</code> 继承</h3>
+<p>新增的两个接口只判断 Modal 自身的 <code>pointerEvents</code>，不再继续检查 Dialog 外部的 A 页面：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">bool ModalHostViewComponentInstance::canHandleTouch() const;
+bool ModalHostViewComponentInstance::canChildrenHandleTouch() const;</code></pre></div>
+<p>四种模式仍保持 RN 原有语义：</p>
+<table>
+<thead>
+<tr>
+<th>Modal 自身 <code>pointerEvents</code></th>
+<th align="right">Modal 自身可命中</th>
+<th align="right">Modal 子节点可命中</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>auto</code></td>
+<td align="right">是</td>
+<td align="right">是</td>
+</tr>
+<tr>
+<td><code>none</code></td>
+<td align="right">否</td>
+<td align="right">否</td>
+</tr>
+<tr>
+<td><code>box-only</code></td>
+<td align="right">是</td>
+<td align="right">否</td>
+</tr>
+<tr>
+<td><code>box-none</code></td>
+<td align="right">否</td>
+<td align="right">是</td>
+</tr>
+</tbody></table>
+<p>所以该修改不是无条件放开 Modal，而是把触摸边界从错误的“A 页面逻辑树”修正为“独立 Dialog 根”：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">修改前：
+Modal 是否可触摸
+  = A 页面及全部外部祖先允许
+  &amp;&amp; Modal 自身 pointerEvents 允许
+
+修改后：
+Modal 是否可触摸
+  = Modal 自身 pointerEvents 允许</code></pre></div>
+<p>Modal 内部的普通 View 没有修改，仍使用 <code>CppComponentInstance</code> 的通用递归逻辑。因此 Modal 内部设置的 <code>none</code>、<code>box-only</code> 等状态仍会正常阻止对应子树，不会被本方案绕过。</p>
+<h3 id="3-2-恢复异常场景的完整分发链路"><a class="heading-anchor" href="#3-2-%E6%81%A2%E5%A4%8D%E5%BC%82%E5%B8%B8%E5%9C%BA%E6%99%AF%E7%9A%84%E5%AE%8C%E6%95%B4%E5%88%86%E5%8F%91%E9%93%BE%E8%B7%AF" aria-label="链接到本节">#</a>3.2 恢复异常场景的完整分发链路</h3>
+<p>修复后的异常场景链路变为：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-text">A 页面 pointerEvents = none
+  → 只负责禁止 A 页面普通子树交互
+
+独立 ArkUI Dialog 收到触摸
+  → ModalHostTouchHandler
+    → TouchEventDispatcher(rootTarget = Modal)
+      → Modal 只检查自身 pointerEvents
+        → canChildrenHandleTouch = true
+          → 继续遍历 Modal 内部子树
+            → 命中关闭按钮
+              → onPress 送达 JS
+                → visible=false
+                  → Modal 正常关闭</code></pre></div>
+<p>这与 Android、iOS 的独立 Modal 输入根语义一致。</p>
+<h3 id="3-3-保护页面树中-m_virtualnode-的原有行为"><a class="heading-anchor" href="#3-3-%E4%BF%9D%E6%8A%A4%E9%A1%B5%E9%9D%A2%E6%A0%91%E4%B8%AD-m_virtualnode-%E7%9A%84%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA" aria-label="链接到本节">#</a>3.3 保护页面树中 <code>m_virtualNode</code> 的原有行为</h3>
+<p>Modal 内容位于独立 Dialog，但 <code>m_virtualNode</code> 仍作为全屏占位节点挂在页面 ArkUI 树中。</p>
+<p>如果只覆写两个 <code>can*</code> 接口，<code>m_virtualNode</code> 的 ArkUI 原生命中拦截也会使用新的“忽略外部父链”结果。在 API 12 等低版本 ArkUI 命中模式下，理论上可能改变页面占位节点对兄弟节点的原生拦截行为。</p>
+<p>因此方案同时覆写：</p>
+<div class="code-frame"><span class="code-frame__label">cpp</span><button class="copy-button" type="button" data-copy-code>复制</button><pre><code class="language-cpp">void onArkUINodeTouchIntercept(
+    const ArkUI_UIInputEvent* event) override;</code></pre></div>
+<p>其处理规则为：</p>
+<ol>
+<li>如果页面父节点不允许子节点触摸，保持补丁前行为：<ul>
+<li>API 20 及以上使用 <code>HTM_BLOCK_DESCENDANTS</code>；</li>
+<li>API 20 以下使用 <code>HTM_NONE</code>。</li>
+</ul>
+</li>
+<li>如果页面父节点允许触摸，继续复用 <code>CppComponentInstance</code> 原有实现。</li>
+</ol>
+<p>由此把两种输入上下文明确分开：</p>
+<table>
+<thead>
+<tr>
+<th>输入上下文</th>
+<th>使用的触摸语义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>独立 Dialog 的 <code>m_rootCustomNode</code></td>
+<td>Modal 是触摸根，不继承 A 页面状态</td>
+</tr>
+<tr>
+<td>页面树中的 <code>m_virtualNode</code></td>
+<td>保持原有祖先感知和 ArkUI 拦截行为</td>
+</tr>
+</tbody></table>
+<p>这项保护确保修复只作用于真正需要修复的 Dialog 分发链路，不改变页面普通触摸行为。</p>
+<h3 id="3-4-对原有行为和性能的影响"><a class="heading-anchor" href="#3-4-%E5%AF%B9%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA%E5%92%8C%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D" aria-label="链接到本节">#</a>3.4 对原有行为和性能的影响</h3>
+<ul>
+<li><strong>外部祖先原本允许触摸时</strong>：修改前后结果完全相同。</li>
+<li><strong>外部祖先禁止触摸时</strong>：<ul>
+<li>页面普通子树仍然被禁止；</li>
+<li>只有独立 Dialog 中的 Modal 恢复交互。</li>
+</ul>
+</li>
+<li><strong>透明 Modal</strong>：只改变背景视觉效果，Dialog 仍为 modal mode，不会因此把触摸穿透给 B 页面。</li>
+<li><strong>嵌套 Modal</strong>：每个 Modal 均以自己的 Dialog 作为输入根，内层 Modal 不会被外层页面状态错误禁用。</li>
+<li><strong>生命周期和动画</strong>：没有修改 Dialog 的创建、显示、关闭、销毁、动画或 active touch cancel。</li>
+<li><strong>ABI</strong>：只覆写已有虚接口，没有增加成员变量，对象大小不变。</li>
+<li><strong>线程安全</strong>：只读取现有 props 和 parent，没有增加共享状态。</li>
+<li><strong>性能</strong>：Dialog 命中不再递归检查外部页面父链，减少了弱引用锁和父链调用；没有新增分配、监听或额外遍历，不会产生性能回退。</li>
+</ul>
+<p>核心的两个 <code>can*</code> 修复已经在模拟器复现场景中确认能够恢复 Modal 按钮点击。最终增加的 <code>onArkUINodeTouchIntercept</code> 只负责让页面占位节点保持补丁前行为，不参与 Dialog 内部事件分发。</p>
+
+        </article>
+      </main>
+
+      <aside class="doc-toc" aria-label="本文目录">
+        <p class="side-label">本文目录</p>
+        <a href="#%E9%97%AE%E9%A2%98%E5%8D%A1%E7%89%87" data-level="2">问题卡片</a>
+<a href="#%E6%9C%80%E7%9F%AD%E7%BB%93%E8%AE%BA" data-level="2">最短结论</a>
+<a href="#%E7%AC%AC%E4%B8%80%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88-patch" data-level="2">第一部分：当前方案 Patch</a>
+<a href="#%E7%AC%AC%E4%BA%8C%E9%83%A8%E5%88%86-%E9%97%AE%E9%A2%98%E5%8E%9F%E5%9B%A0" data-level="2">第二部分：问题原因</a>
+<a href="#2-1-modal-%E5%9C%A8%E9%B8%BF%E8%92%99%E7%AB%AF%E5%AD%98%E5%9C%A8%E4%B8%A4%E5%A5%97%E7%88%B6%E5%AD%90%E5%85%B3%E7%B3%BB" data-level="3">2.1 Modal 在鸿蒙端存在两套父子关系</a>
+<a href="#2-2-%E5%8E%9F%E9%80%9A%E7%94%A8%E8%A7%A6%E6%91%B8%E5%88%A4%E6%96%AD%E9%94%99%E8%AF%AF%E7%BB%A7%E6%89%BF%E4%BA%86-a-%E9%A1%B5%E7%8A%B6%E6%80%81" data-level="3">2.2 原通用触摸判断错误继承了 A 页状态</a>
+<a href="#2-3-%E6%97%A5%E5%BF%97%E8%AF%81%E6%8D%AE" data-level="3">2.3 日志证据</a>
+<a href="#2-4-%E6%9C%80%E7%BB%88%E6%A0%B9%E5%9B%A0" data-level="3">2.4 最终根因</a>
+<a href="#%E7%AC%AC%E4%B8%89%E9%83%A8%E5%88%86-%E5%BD%93%E5%89%8D%E6%96%B9%E6%A1%88%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3%E6%AD%A4%E9%97%AE%E9%A2%98" data-level="2">第三部分：当前方案如何解决此问题</a>
+<a href="#3-1-%E5%9C%A8-dialog-%E8%A7%A6%E6%91%B8%E6%A0%B9%E5%A4%84%E7%BB%88%E6%AD%A2%E5%A4%96%E9%83%A8%E9%A1%B5%E9%9D%A2%E7%9A%84-pointerevents-%E7%BB%A7%E6%89%BF" data-level="3">3.1 在 Dialog 触摸根处终止外部页面的 pointerEvents 继承</a>
+<a href="#3-2-%E6%81%A2%E5%A4%8D%E5%BC%82%E5%B8%B8%E5%9C%BA%E6%99%AF%E7%9A%84%E5%AE%8C%E6%95%B4%E5%88%86%E5%8F%91%E9%93%BE%E8%B7%AF" data-level="3">3.2 恢复异常场景的完整分发链路</a>
+<a href="#3-3-%E4%BF%9D%E6%8A%A4%E9%A1%B5%E9%9D%A2%E6%A0%91%E4%B8%AD-m_virtualnode-%E7%9A%84%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA" data-level="3">3.3 保护页面树中 m_virtualNode 的原有行为</a>
+<a href="#3-4-%E5%AF%B9%E5%8E%9F%E6%9C%89%E8%A1%8C%E4%B8%BA%E5%92%8C%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D" data-level="3">3.4 对原有行为和性能的影响</a>
+      </aside>
+    </div>
+
+    <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
+    <script src="../../../assets/site.js"></script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RNOH 真实问题复盘目录，沉淀现象、根因、补丁和验证边界。">
+    <title>RNOH 问题 · Engineering Notes</title>
+    <link rel="stylesheet" href="../../../assets/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
+        <nav class="site-nav" data-site-nav><a href="../../android/index.html">Android</a><a href="../index.html" aria-current="page">RNOH</a><a href="../../cpp/index.html">C++</a><a href="../../../skills/index.html">Skills</a></nav>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
+      </div>
+    </header>
+    <main class="page-shell" id="main">
+      <nav class="breadcrumb" aria-label="面包屑"><a href="../../../index.html">首页</a><span aria-hidden="true">/</span><a href="../../index.html">文档</a><span aria-hidden="true">/</span><a href="../index.html">RNOH</a><span aria-hidden="true">/</span><span>问题</span></nav>
+      <section class="category-hero">
+        <p class="eyebrow">RNOH / Issues</p>
+        <h1>问题</h1>
+        <p>沉淀 RNOH 真实问题复盘：现象、复现条件、根因链路、补丁方案和验证边界。</p>
+        <span class="category-count">1 个问题 · Markdown / HTML 双份保存</span>
+      </section>
+      <section class="section" aria-labelledby="issues-title">
+        <div class="section-heading">
+          <div><h2 id="issues-title">问题列表</h2><p>优先记录可复现、可定位、可验证的问题闭环。</p></div>
+        </div>
+        <ol class="path-list">
+          <li>
+            <div><a href="modal-click-no-response.html">Modal 路由切换后点击无响应</a><p>A 页面 Modal 跳转 B 后仍可见但不可点击；根因是独立 Dialog 的 Modal 错误继承 A 页 pointerEvents，导致触摸在根节点 target-miss。</p></div>
+            <span class="path-list__tag">Modal</span>
+          </li>
+        </ol>
+      </section>
+    </main>
+    <footer class="site-footer">RNOH / 问题 · Engineering Notes</footer>
+    <script src="../../../assets/site.js"></script>
+  </body>
+</html>
