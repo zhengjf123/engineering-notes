@@ -13,40 +13,35 @@
 
 ```text
 engineering-notes/
-├── index.html
-├── docs/
-│   ├── index.html
-│   ├── android/
-│   │   ├── index.html
-│   │   └── react-native-android-trace.html
-│   ├── rnoh/
-│   │   ├── performance/
-│   │   │   └── rnoh-performance-issue-localization-guide.html
-│   │   ├── features/
-│   │   ├── components/
-│   │   │   └── scrollview/
-│   │   └── issues/
-│   │       ├── modal-click-no-response.html
-└── scrollview-friction-default-mismatch.html
-│   └── cpp/
-├── markdown/
-│   ├── index.md
-│   ├── android/
-│   │   ├── index.md
-│   │   └── react-native-android-trace.md
-│   ├── rnoh/
-│   │   ├── performance/
-│   │   │   └── rnoh-performance-issue-localization-guide.md
-│   │   ├── features/
-│   │   ├── components/
-│   │   │   └── scrollview/
-│   │   └── issues/
-│   │       ├── modal-click-no-response.md
-└── scrollview-friction-default-mismatch.md
-│   └── cpp/
-├── skills/
-│   └── README.md
-└── AGENTS.md
+??? index.html
+??? README.md
+??? AGENTS.md
+??? assets/
+?   ??? site.js
+?   ??? styles.css
+??? docs/
+?   ??? index.html
+?   ??? android/
+?   ?   ??? index.html
+?   ?   ??? react-native-android-trace.html
+?   ?   ??? rn-android-environment-from-scratch.html
+?   ??? rnoh/
+?   ?   ??? issues/
+?   ?       ??? modal-click-no-response.html
+?   ?       ??? scrollview-friction-default-mismatch.html
+?   ??? cpp/
+??? markdown/
+?   ??? android/
+?   ?   ??? index.md
+?   ?   ??? react-native-android-trace.md
+?   ?   ??? rn-android-environment-from-scratch.md
+?   ??? rnoh/
+?   ?   ??? issues/
+?   ?       ??? modal-click-no-response.md
+?   ?       ??? scrollview-friction-default-mismatch.md
+?   ??? cpp/
+??? skills/
+??? tools/
 ```
 
 `markdown/` 保存可编辑源文档，`docs/` 保存对应的 HTML 阅读版，`skills/` 保存可复用工作流。

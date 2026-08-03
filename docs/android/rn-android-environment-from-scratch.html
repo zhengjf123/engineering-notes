@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Windows React Native Android environment setup guide."><title>Windows 搭建 React Native Android 开发环境 ? Engineering Notes</title><link rel="stylesheet" href="../../assets/styles.css"></head><body class="doc-page"><a class="skip-link" href="#article">Skip to content</a><header class="site-header"><div class="site-header__inner"><a class="brand" href="../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a><button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="Open navigation">?</button><nav class="site-nav" data-site-nav aria-label="Main navigation"><a href="index.html" aria-current="page">Android</a><a href="../rnoh/index.html">RNOH</a><a href="../cpp/index.html">C++</a><a href="../../skills/index.html">Skills</a></nav><button class="icon-button" type="button" data-theme-toggle aria-label="Toggle theme">?</button></div></header><div class="doc-shell"><aside class="doc-sidebar" aria-label="Android topics"><div><p class="side-label">Android</p><nav class="side-nav"><a href="index.html">Topic home</a><a href="react-native-android-trace.html">RN Android Trace</a><a href="rn-android-environment-from-scratch.html" aria-current="page">RN Android setup</a></nav></div></aside><main class="doc-main"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="../../index.html">Home</a><span aria-hidden="true">/</span><a href="../index.html">Docs</a><span aria-hidden="true">/</span><a href="index.html">Android</a><span aria-hidden="true">/</span><span>Windows 搭建 React Native Android 开发环境</span></nav><div class="doc-banner"><span><strong>Windows / React Native Android</strong> ? RN 0.72 / 0.77 / 0.82 setup</span><span><a href="../../markdown/android/rn-android-environment-from-scratch.md">Markdown source</a> ? <a href="index.html">Android index</a></span></div><article class="markdown-body" id="article">
+<h1 id="windows-搭建-react-native-android-开发环境"><a class="heading-anchor" href="#windows-搭建-react-native-android-开发环境" aria-label="Link to section">#</a>Windows 搭建 React Native Android 开发环境</h1>
+<blockquote>
+<p>适用范围：Windows 10/11 x64，设备已经安装 Git、Node.js 和 npm，但尚未安装 JDK、Android Studio、Android SDK；目标是搭建 RN 0.72、0.77、0.82 三个原生 Android 工程的开发环境。
+整理日期：2026-07-29。通用步骤以 React Native、Android、Node.js、Gradle 等官方文档为准；SDK/NDK 版本以本地工程源码为准。</p>
+</blockquote>
+<blockquote>
+<p><strong>重要：</strong> 新电脑不直接复制当前三个工程目录。先检查设备现有的 Git、Node.js、npm 和 npx，再按照第 11 节的命令从 npm 拉取指定版本的 React Native 模板并重新生成三个工程；随后完成 Android 环境配置和构建验证。</p>
+</blockquote>
+<h2 id="1-已有软件与仍需安装的软件"><a class="heading-anchor" href="#1-已有软件与仍需安装的软件" aria-label="Link to section">#</a>1. 已有软件与仍需安装的软件</h2>
+<h3 id="设备已经安装只需检查"><a class="heading-anchor" href="#设备已经安装只需检查" aria-label="Link to section">#</a>设备已经安装，只需检查</h3>
+<table>
+<thead>
+<tr>
+<th>软件</th>
+<th>检查命令</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Git</td>
+<td><code>git --version</code></td>
+<td>命令可正常执行</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td><code>node --version</code></td>
+<td>为同时覆盖三个工程，应不低于 20.19.4</td>
+</tr>
+<tr>
+<td>npm</td>
+<td><code>npm --version</code></td>
+<td>命令可正常执行</td>
+</tr>
+<tr>
+<td>npx</td>
+<td><code>npx --version</code></td>
+<td>随 npm 提供，拉取 Community CLI 时需要</td>
+</tr>
+</tbody></table>
+<h3 id="仍需安装"><a class="heading-anchor" href="#仍需安装" aria-label="Link to section">#</a>仍需安装</h3>
+<table>
+<thead>
+<tr>
+<th>软件/组件</th>
+<th>本文建议</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Microsoft OpenJDK</td>
+<td>JDK 17 x64</td>
+<td>运行 Gradle 和 Android Gradle Plugin</td>
+</tr>
+<tr>
+<td>Android Studio</td>
+<td>官方 Stable 版</td>
+<td>安装和管理 Android SDK、模拟器、NDK、CMake</td>
+</tr>
+<tr>
+<td>Android SDK Platform</td>
+<td>API 33、35、36</td>
+<td>分别满足三个工程的 <code>compileSdk</code></td>
+</tr>
+<tr>
+<td>Android SDK Build-Tools</td>
+<td>33.0.0、35.0.0、36.0.0</td>
+<td>分别满足三个工程的构建配置</td>
+</tr>
+<tr>
+<td>Android SDK Platform-Tools</td>
+<td>最新稳定版</td>
+<td>提供 <code>adb</code></td>
+</tr>
+<tr>
+<td>Android SDK Command-line Tools</td>
+<td>latest</td>
+<td>提供 <code>sdkmanager</code> 等工具</td>
+</tr>
+<tr>
+<td>Android Emulator</td>
+<td>最新稳定版</td>
+<td>使用 Android 模拟器时需要</td>
+</tr>
+<tr>
+<td>CMake</td>
+<td>3.22.1</td>
+<td>RN 新架构的 Android C/C++ 构建</td>
+</tr>
+<tr>
+<td>NDK (Side by side)</td>
+<td>23.1.7779620、27.1.12297006</td>
+<td>分别满足 RN 0.72 与 RN 0.77/0.82</td>
+</tr>
+<tr>
+<td>Android 设备</td>
+<td>模拟器或开启调试的真机，二选一</td>
+<td>安装和运行应用</td>
+</tr>
+</tbody></table>
+<h3 id="不需要单独安装"><a class="heading-anchor" href="#不需要单独安装" aria-label="Link to section">#</a>不需要单独安装</h3>
+<ul>
+<li>设备已有的 Git、Node.js 和 npm 通过第 4、5 节检查后，无需重复安装。</li>
+<li>不要求安装 nvm-windows；本文直接使用设备现有的 <code>node</code>、<code>npm</code> 和 <code>npx</code>。</li>
+<li>不要全局安装 <code>react-native-cli</code>。工程自己的依赖和 <code>npm run android</code>/<code>npx react-native</code> 会调用匹配版本。</li>
+<li>不要全局安装 Gradle。三个工程都提供了 <code>android\gradlew.bat</code>，官方也推荐使用 Gradle Wrapper。</li>
+<li>不需要安装 Yarn 或 pnpm；三个工程均使用 <code>package-lock.json</code>，本文统一使用 npm。</li>
+<li>不需要单独安装 Kotlin、<code>adb</code>、CMake 或 NDK；这些由 Android Studio 的 SDK Manager 安装。</li>
+<li>Windows 上不要求安装 Watchman。</li>
+<li>仅构建 Android 不需要 Xcode、CocoaPods、Visual Studio，也不需要 macOS。</li>
+<li>VS Code 等代码编辑器是可选项，不影响 Android 构建环境是否成立。</li>
+</ul>
+<h2 id="2-本地三个工程的真实版本要求"><a class="heading-anchor" href="#2-本地三个工程的真实版本要求" aria-label="Link to section">#</a>2. 本地三个工程的真实版本要求</h2>
+<p>以下数据来自本目录中的 <code>package.json</code>、<code>android\build.gradle</code>、<code>android\gradle.properties</code> 和 React Native Gradle Plugin：</p>
+<table>
+<thead>
+<tr>
+<th>工程</th>
+<th>RN</th>
+<th><code>engines.node</code></th>
+<th>min/compile/target SDK</th>
+<th>Build-Tools</th>
+<th>NDK</th>
+<th>AGP</th>
+<th>Gradle Wrapper</th>
+<th>新架构</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RN_72_2026_0515</code></td>
+<td>0.72.17</td>
+<td><code>&gt;=16</code></td>
+<td>21 / 33 / 33</td>
+<td>33.0.0</td>
+<td>23.1.7779620</td>
+<td>7.4.2</td>
+<td>8.0.1</td>
+<td>关闭</td>
+</tr>
+<tr>
+<td><code>RN_77_2026_0515</code></td>
+<td>0.77.0</td>
+<td><code>&gt;=18</code></td>
+<td>24 / 35 / 34</td>
+<td>35.0.0</td>
+<td>27.1.12297006</td>
+<td>8.7.2</td>
+<td>8.10.2</td>
+<td>开启</td>
+</tr>
+<tr>
+<td><code>RN_82_2026_0516</code></td>
+<td>0.82.0</td>
+<td><code>&gt;=20</code></td>
+<td>24 / 36 / 36</td>
+<td>36.0.0</td>
+<td>27.1.12297006</td>
+<td>8.12.0</td>
+<td>9.0.0</td>
+<td>开启</td>
+</tr>
+</tbody></table>
+<p>React Native 0.82 官方文档要求 Node 20.19.4 或更高并推荐 JDK 17。因此，设备现有 Node.js 不低于 20.19.4 时可以直接使用；推荐使用仍受支持的 LTS 版本。不要仅因为三个工程版本不同就重复安装三套 Node.js。</p>
+<h2 id="3-安装前检查电脑"><a class="heading-anchor" href="#3-安装前检查电脑" aria-label="Link to section">#</a>3. 安装前检查电脑</h2>
+<h3 id="系统和硬件"><a class="heading-anchor" href="#系统和硬件" aria-label="Link to section">#</a>系统和硬件</h3>
+<ul>
+<li>使用 64 位 Windows 10 或 Windows 11。当前 Android Studio 不支持 Windows ARM 电脑。</li>
+<li>只用 Android Studio：至少 8 GB 内存。</li>
+<li>同时使用 Android Studio 和模拟器：至少 16 GB，推荐 32 GB。</li>
+<li>建议在 SSD 上至少预留 40 GB；三套 SDK/Build-Tools、两套 NDK、CMake、模拟器镜像和 Gradle/npm 缓存都需要空间。</li>
+<li>使用模拟器时，CPU 必须支持虚拟化，并在 BIOS/UEFI 中开启 Intel VT-x 或 AMD-V/SVM。</li>
+<li>如果电脑性能或磁盘不足，可直接使用 Android 真机，跳过系统镜像和模拟器配置。</li>
+</ul>
+<h3 id="新电脑推荐执行顺序"><a class="heading-anchor" href="#新电脑推荐执行顺序" aria-label="Link to section">#</a>新电脑推荐执行顺序</h3>
+<p>本文为了便于查阅，先集中说明各类环境组件。新电脑实际操作时建议按下面的顺序：</p>
+<ol>
+<li>完成第 3～5 节：检查系统以及设备现有的 Git、Node.js、npm、npx。</li>
+<li>执行第 11 节：用三条 Community CLI 命令从 npm 拉取并生成三个 RN 工程。</li>
+<li>完成第 6～10 节：安装 JDK、Android Studio、SDK/NDK/CMake，并准备模拟器或真机。</li>
+<li>完成第 12～15 节：检查依赖、首次构建、运行和最终验收。</li>
+</ol>
+<h3 id="建议目录"><a class="heading-anchor" href="#建议目录" aria-label="Link to section">#</a>建议目录</h3>
+<p>新电脑只需先创建一个空的工作目录。不要从旧电脑复制三个工程、<code>node_modules</code>、构建缓存或本地 Gradle ZIP。第 11 节的命令执行完成后会生成：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">D:\RN\An
+├─ RN_72_2026_0515
+├─ RN_77_2026_0515
+└─ RN_82_2026_0516
+</code></pre></div>
+<p>新生成的工程使用各自模板声明的标准 Gradle Wrapper，需要时会从 Gradle 官方地址下载对应版本，不依赖旧电脑中的离线 ZIP。</p>
+<p>工程目录、Android SDK 目录尽量不要放在 OneDrive、中文目录或层级很深的目录中，可减少路径长度、文件锁和转义问题。没有 D 盘时可换成其他本地磁盘，但后文命令中的根路径也要一起修改。</p>
+<h2 id="4-检查设备现有的-git"><a class="heading-anchor" href="#4-检查设备现有的-git" aria-label="Link to section">#</a>4. 检查设备现有的 Git</h2>
+<p>设备已经安装 Git，不需要重新下载安装。打开一个新的 PowerShell，执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">git --version
+where.exe git
+</code></pre></div>
+<p>能显示 Git 版本和 <code>git.exe</code> 路径即成功。</p>
+<p>如需在新电脑提交代码，再配置自己的身份：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">git config --global user.name &quot;你的名字&quot;
+git config --global user.email &quot;你的邮箱&quot;
+</code></pre></div>
+<h2 id="5-检查设备现有的-nodejsnpm-和-npx"><a class="heading-anchor" href="#5-检查设备现有的-nodejsnpm-和-npx" aria-label="Link to section">#</a>5. 检查设备现有的 Node.js、npm 和 npx</h2>
+<p>设备已经安装 Node.js 和 npm，不需要重复安装。打开新的 PowerShell，执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">node --version
+npm --version
+npx --version
+where.exe node
+where.exe npm
+where.exe npx
+</code></pre></div>
+<p>检查结果应满足：</p>
+<ul>
+<li><code>node --version</code> 不低于 <code>v20.19.4</code>；满足时直接使用当前版本。</li>
+<li><code>npm --version</code>、<code>npx --version</code> 都能正常输出版本。</li>
+<li><code>where.exe</code> 不应显示多套相互冲突的 Node/npm 路径。</li>
+</ul>
+<p>如果 Node 版本低于 20.19.4，再从 <a href="https://nodejs.org/en/download">Node.js 官方下载页</a>升级到受支持的 Windows x64 LTS 版本。升级后重新打开 PowerShell，并再次执行以上检查。环境满足要求时不要为了搭建这三个工程重复安装 Node.js。</p>
+<h2 id="6-安装-jdk-17"><a class="heading-anchor" href="#6-安装-jdk-17" aria-label="Link to section">#</a>6. 安装 JDK 17</h2>
+<p>本目录的 RN 0.77 和 RN 0.82 使用 AGP 8.x，而 Android 官方明确要求 AGP 8.x 使用 JDK 17。JDK 17 也可作为这三个工程的统一 Java 环境。</p>
+<ol>
+<li>打开 <a href="https://learn.microsoft.com/java/openjdk/download">Microsoft Build of OpenJDK 官方下载页</a>。</li>
+<li>在 <strong>OpenJDK 17 → Windows → x64</strong> 中下载 MSI。</li>
+<li>安装时启用以下选项：<ul>
+<li>将 Java 加入 <code>PATH</code>。</li>
+<li>设置 <code>JAVA_HOME</code>。</li>
+</ul>
+</li>
+<li>重新打开 PowerShell，执行：</li>
+</ol>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">java -version
+javac -version
+$env:JAVA_HOME
+where.exe java
+</code></pre></div>
+<p>正确结果应满足：</p>
+<ul>
+<li><code>java -version</code> 和 <code>javac -version</code> 的主版本均为 <code>17</code>。</li>
+<li><code>JAVA_HOME</code> 指向 JDK 根目录，例如 <code>C:\Program Files\Microsoft\jdk-17...</code>，不能指向其 <code>bin</code> 子目录。</li>
+<li><code>where.exe java</code> 的第一项应是本次安装的 JDK 17，而不是旧 Java 或 Oracle JRE。</li>
+</ul>
+<h2 id="7-安装-android-studio"><a class="heading-anchor" href="#7-安装-android-studio" aria-label="Link to section">#</a>7. 安装 Android Studio</h2>
+<ol>
+<li>从 <a href="https://developer.android.com/studio">Android Studio 官方下载页</a>下载 Windows x64 的 Stable <code>.exe</code>。</li>
+<li>运行安装程序，保留以下组件：<ul>
+<li>Android Studio</li>
+<li>Android SDK</li>
+<li>Android SDK Platform</li>
+<li>Android Virtual Device</li>
+</ul>
+</li>
+<li>首次启动选择 Standard Setup，等待向导结束。</li>
+<li>不要使用 Canary/Preview 版作为主环境。</li>
+</ol>
+<p>截至本文日期，官方 Stable 版能够识别本目录的 AGP 7.4、8.7、8.12。若 Android Studio提示升级工程的 AGP 或 Gradle，不要直接点击升级；这些版本属于工程构建配置，环境搭建不应顺手修改工程。</p>
+<h3 id="统一-android-studio-与命令行的-jdk"><a class="heading-anchor" href="#统一-android-studio-与命令行的-jdk" aria-label="Link to section">#</a>统一 Android Studio 与命令行的 JDK</h3>
+<p>打开：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">File
+→ Settings
+→ Build, Execution, Deployment
+→ Build Tools
+→ Gradle
+→ Gradle JDK
+</code></pre></div>
+<p>选择上一步安装的 JDK 17 或 <code>JAVA_HOME</code>，避免 Android Studio 用一个 JDK、PowerShell 中的 <code>gradlew.bat</code> 又用另一个 JDK。</p>
+<h2 id="8-安装完整-android-sdkndk-和-cmake"><a class="heading-anchor" href="#8-安装完整-android-sdkndk-和-cmake" aria-label="Link to section">#</a>8. 安装完整 Android SDK、NDK 和 CMake</h2>
+<p>在 Android Studio Welcome 页面进入：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">More Actions → SDK Manager
+</code></pre></div>
+<p>已打开工程时也可以进入：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">Tools → SDK Manager
+</code></pre></div>
+<p>先记下窗口顶部显示的 <strong>Android SDK Location</strong>。默认一般是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">C:\Users\&lt;Windows用户名&gt;\AppData\Local\Android\Sdk
+</code></pre></div>
+<p>如果 C 盘空间不足，可以在第一次安装 SDK 时选择例如 <code>D:\Android\Sdk</code>，后续所有环境变量必须使用这个实际路径。</p>
+<h3 id="81-sdk-platforms"><a class="heading-anchor" href="#81-sdk-platforms" aria-label="Link to section">#</a>8.1 SDK Platforms</h3>
+<p>打开 <strong>SDK Platforms</strong>，勾选右下角 <strong>Show Package Details</strong>，安装：</p>
+<ul>
+<li>Android 13 / API 33<ul>
+<li>Android SDK Platform 33</li>
+</ul>
+</li>
+<li>Android 15 / API 35<ul>
+<li>Android SDK Platform 35</li>
+</ul>
+</li>
+<li>Android 16 / API 36<ul>
+<li>Android SDK Platform 36</li>
+</ul>
+</li>
+<li>需要模拟器时，再选择一个系统镜像：<ul>
+<li>推荐 <code>Android 15 / API 35 / Google APIs / x86_64 System Image</code></li>
+</ul>
+</li>
+</ul>
+<p>只需要安装一个常用模拟器镜像；“编译所需 Platform”与“运行模拟器所需 System Image”不是同一个组件。</p>
+<h3 id="82-sdk-tools"><a class="heading-anchor" href="#82-sdk-tools" aria-label="Link to section">#</a>8.2 SDK Tools</h3>
+<p>打开 <strong>SDK Tools</strong>，勾选 <strong>Show Package Details</strong>，安装：</p>
+<ul>
+<li>Android SDK Build-Tools<ul>
+<li>33.0.0</li>
+<li>35.0.0</li>
+<li>36.0.0</li>
+</ul>
+</li>
+<li>Android SDK Platform-Tools</li>
+<li>Android SDK Command-line Tools (latest)</li>
+<li>Android Emulator</li>
+<li>CMake<ul>
+<li>3.22.1</li>
+</ul>
+</li>
+<li>NDK (Side by side)<ul>
+<li>23.1.7779620</li>
+<li>27.1.12297006</li>
+</ul>
+</li>
+<li>Google USB Driver<ul>
+<li>使用 Google/Pixel 真机时安装；其他品牌还可能需要厂商自己的 OEM USB 驱动</li>
+</ul>
+</li>
+</ul>
+<p>点击 <strong>Apply → OK</strong>，接受 Android SDK License，等待全部下载完成。NDK 必须通过 <strong>Show Package Details</strong> 选择精确版本，不能只安装列表中默认的最新版。</p>
+<h3 id="83-可选用-sdkmanager-精确补装"><a class="heading-anchor" href="#83-可选用-sdkmanager-精确补装" aria-label="Link to section">#</a>8.3 可选：用 sdkmanager 精确补装</h3>
+<p>完成环境变量配置并重新打开 PowerShell 后，也可以用下面的命令补装或核对全部包：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">$sdkManager = &quot;$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat&quot;
+
+&amp; $sdkManager `
+  &quot;platform-tools&quot; `
+  &quot;emulator&quot; `
+  &quot;platforms;android-33&quot; `
+  &quot;platforms;android-35&quot; `
+  &quot;platforms;android-36&quot; `
+  &quot;build-tools;33.0.0&quot; `
+  &quot;build-tools;35.0.0&quot; `
+  &quot;build-tools;36.0.0&quot; `
+  &quot;cmake;3.22.1&quot; `
+  &quot;ndk;23.1.7779620&quot; `
+  &quot;ndk;27.1.12297006&quot; `
+  &quot;system-images;android-35;google_apis;x86_64&quot;
+
+&amp; $sdkManager --licenses
+</code></pre></div>
+<p>逐项阅读并按提示接受许可证。使用 Android Studio 图形界面安装完成后，不必重复执行安装命令。</p>
+<h2 id="9-配置-windows-环境变量"><a class="heading-anchor" href="#9-配置-windows-环境变量" aria-label="Link to section">#</a>9. 配置 Windows 环境变量</h2>
+<p>在 Windows 搜索并打开“编辑账户的环境变量”，创建或修改以下<strong>用户变量</strong>。</p>
+<h3 id="java-home"><a class="heading-anchor" href="#java-home" aria-label="Link to section">#</a><code>JAVA_HOME</code></h3>
+<p>值为 JDK 17 根目录，例如：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">C:\Program Files\Microsoft\jdk-17.0.x
+</code></pre></div>
+<h3 id="android-home"><a class="heading-anchor" href="#android-home" aria-label="Link to section">#</a><code>ANDROID_HOME</code></h3>
+<p>值为 SDK Manager 顶部显示的真实 SDK 路径。默认示例：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">C:\Users\&lt;Windows用户名&gt;\AppData\Local\Android\Sdk
+</code></pre></div>
+<p>Android 官方已将 <code>ANDROID_SDK_ROOT</code> 标记为废弃。新环境只设置 <code>ANDROID_HOME</code> 即可；如果公司脚本必须保留 <code>ANDROID_SDK_ROOT</code>，其值必须与 <code>ANDROID_HOME</code> 完全一致。</p>
+<h3 id="path"><a class="heading-anchor" href="#path" aria-label="Link to section">#</a><code>Path</code></h3>
+<p>向用户 <code>Path</code> 中分别新增：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">%JAVA_HOME%\bin
+%ANDROID_HOME%\platform-tools
+%ANDROID_HOME%\emulator
+%ANDROID_HOME%\cmdline-tools\latest\bin
+</code></pre></div>
+<p>保存后关闭所有旧 PowerShell、CMD、VS Code 和 Android Studio 窗口，再重新打开，使新变量生效。</p>
+<h3 id="验证环境变量"><a class="heading-anchor" href="#验证环境变量" aria-label="Link to section">#</a>验证环境变量</h3>
+<p>在新的 PowerShell 中执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">$env:JAVA_HOME
+$env:ANDROID_HOME
+
+git --version
+node --version
+npm --version
+npx --version
+java -version
+javac -version
+adb version
+sdkmanager --version
+
+where.exe node
+where.exe java
+where.exe adb
+</code></pre></div>
+<p>任何命令提示“无法识别”时，先检查路径拼写并确认当前终端是在保存环境变量之后重新打开的。</p>
+<h2 id="10-准备模拟器或-android-真机"><a class="heading-anchor" href="#10-准备模拟器或-android-真机" aria-label="Link to section">#</a>10. 准备模拟器或 Android 真机</h2>
+<p>两种设备方式二选一即可。真机通常更省电脑资源；模拟器更适合快速切换 Android 版本和屏幕尺寸。</p>
+<h3 id="101-使用-android-模拟器"><a class="heading-anchor" href="#101-使用-android-模拟器" aria-label="Link to section">#</a>10.1 使用 Android 模拟器</h3>
+<h4>开启硬件虚拟化</h4>
+<ol>
+<li>在 BIOS/UEFI 中开启 Intel VT-x 或 AMD-V/SVM。</li>
+<li>Windows 搜索“启用或关闭 Windows 功能”。</li>
+<li>勾选 <strong>Windows Hypervisor Platform</strong>。</li>
+<li>重启电脑。</li>
+<li>验证加速：</li>
+</ol>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">&amp; &quot;$env:ANDROID_HOME\emulator\emulator.exe&quot; -accel-check
+</code></pre></div>
+<p>结果应包含 <code>is installed and usable</code>。Android 官方当前推荐 Windows Hypervisor Platform；旧的 Android Emulator Hypervisor Driver 将于 2026-12-31 停止支持，因此新电脑不建议继续按旧教程安装 HAXM/AEHD。</p>
+<h4>创建 AVD</h4>
+<ol>
+<li>Android Studio Welcome 页面选择 <strong>More Actions → Virtual Device Manager</strong>。</li>
+<li>点击 <strong>Create Virtual Device</strong>。</li>
+<li>选择一款常见 Pixel Phone。</li>
+<li>选择已安装的 <strong>API 35 Google APIs x86_64</strong> 镜像。</li>
+<li>保留默认配置并完成创建。</li>
+<li>点击启动按钮，等模拟器进入桌面。</li>
+</ol>
+<p>验证：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">emulator -list-avds
+adb devices
+</code></pre></div>
+<p><code>adb devices</code> 中应出现类似 <code>emulator-5554    device</code>。</p>
+<h3 id="102-使用-android-真机"><a class="heading-anchor" href="#102-使用-android-真机" aria-label="Link to section">#</a>10.2 使用 Android 真机</h3>
+<ol>
+<li>手机进入“设置 → 关于手机”，连续点击“版本号/Build number”七次，开启开发者选项。</li>
+<li>在开发者选项中开启 <strong>USB 调试</strong>。</li>
+<li>用支持数据传输的 USB 线连接电脑。</li>
+<li>Windows 如未识别设备：<ul>
+<li>Pixel 安装 SDK Manager 中的 Google USB Driver。</li>
+<li>其他品牌安装 Android 官方页面链接的 OEM USB Driver。</li>
+</ul>
+</li>
+<li>手机弹出 RSA 指纹授权时选择允许。</li>
+<li>执行：</li>
+</ol>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb devices
+</code></pre></div>
+<p>正确状态是：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">设备序列号    device
+</code></pre></div>
+<p>如果显示 <code>unauthorized</code>，解锁手机并接受授权；仍未恢复时执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb kill-server
+adb start-server
+adb devices
+</code></pre></div>
+<p>真机运行 RN 开发包时，将电脑的 Metro 端口反向映射给手机：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb reverse tcp:8081 tcp:8081
+</code></pre></div>
+<h2 id="11-在新电脑用命令拉取并生成三个工程"><a class="heading-anchor" href="#11-在新电脑用命令拉取并生成三个工程" aria-label="Link to section">#</a>11. 在新电脑用命令拉取并生成三个工程</h2>
+<p>当前 RN 0.72、RN 0.77 目录不是 Git 仓库，RN 0.82 也没有配置远程仓库，因此不能通过 <code>git clone</code> 还原这三个目录。新电脑应使用 React Native Community CLI 从 npm 拉取指定 RN 版本的官方模板并重新生成工程。</p>
+<blockquote>
+<p>这些命令生成的是对应版本的干净 React Native 工程，不包含当前电脑中未提交的业务代码或本地修改。如果将来还要还原业务改动，必须先把改动提交并推送到有远程地址的 Git 仓库。</p>
+</blockquote>
+<h3 id="111-前置条件"><a class="heading-anchor" href="#111-前置条件" aria-label="Link to section">#</a>11.1 前置条件</h3>
+<p>执行前至少完成：</p>
+<ul>
+<li>第 4 节：确认设备现有 Git 可用。</li>
+<li>第 5 节：确认设备现有 Node.js 不低于 20.19.4，且 npm、npx 可用。</li>
+<li>确保 <code>D:\RN\An</code> 下不存在同名的三个工程目录，否则 CLI 会拒绝初始化或混入旧文件。</li>
+<li>确保 npm 网络可用：</li>
+</ul>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">git --version
+node --version
+npm --version
+npx --version
+npm ping
+</code></pre></div>
+<h3 id="112-创建根目录"><a class="heading-anchor" href="#112-创建根目录" aria-label="Link to section">#</a>11.2 创建根目录</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">New-Item -ItemType Directory -Path D:\RN\An -Force
+Set-Location D:\RN\An
+</code></pre></div>
+<h3 id="113-拉取-rn-07217"><a class="heading-anchor" href="#113-拉取-rn-07217" aria-label="Link to section">#</a>11.3 拉取 RN 0.72.17</h3>
+<p>RN 0.72 工程实际使用 Community CLI 11.4.1。该版本使用 <code>--npm</code> 参数指定 npm：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">npx --yes @react-native-community/cli@11.4.1 init RN_72_2026_0515 --version 0.72.17 --npm
+</code></pre></div>
+<h3 id="114-拉取-rn-0770"><a class="heading-anchor" href="#114-拉取-rn-0770" aria-label="Link to section">#</a>11.4 拉取 RN 0.77.0</h3>
+<p>RN 0.77 工程实际使用 Community CLI 15.0.1：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">npx --yes @react-native-community/cli@15.0.1 init RN_77_2026_0515 --version 0.77.0 --pm npm
+</code></pre></div>
+<h3 id="115-拉取-rn-0820"><a class="heading-anchor" href="#115-拉取-rn-0820" aria-label="Link to section">#</a>11.5 拉取 RN 0.82.0</h3>
+<p>RN 0.82 工程实际使用 Community CLI 20.0.0：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">npx --yes @react-native-community/cli@20.0.0 init RN_82_2026_0516 --version 0.82.0 --pm npm
+</code></pre></div>
+<p>每条命令都会从 npm 下载指定 CLI 和 React Native 模板，创建工程并安装 npm 依赖。一个工程初始化成功后再执行下一个，不要并行运行三个初始化命令。</p>
+<h3 id="116-验证拉取结果"><a class="heading-anchor" href="#116-验证拉取结果" aria-label="Link to section">#</a>11.6 验证拉取结果</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">$projects = @(
+  &quot;D:\RN\An\RN_72_2026_0515&quot;,
+  &quot;D:\RN\An\RN_77_2026_0515&quot;,
+  &quot;D:\RN\An\RN_82_2026_0516&quot;
+)
+
+foreach ($project in $projects) {
+  $packageJson = Get-Content &quot;$project\package.json&quot; -Raw | ConvertFrom-Json
+  [PSCustomObject]@{
+    Project = $packageJson.name
+    ReactNative = $packageJson.dependencies.&#39;react-native&#39;
+    HasAndroid = Test-Path &quot;$project\android\gradlew.bat&quot;
+  }
+}
+</code></pre></div>
+<p>预期分别显示 RN 版本 <code>0.72.17</code>、<code>0.77.0</code>、<code>0.82.0</code>，且三项 <code>HasAndroid</code> 均为 <code>True</code>。</p>
+<p>再检查三个工程的 Gradle Wrapper 不能指向旧电脑的本地路径：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Get-ChildItem D:\RN\An\RN_*\android\gradle\wrapper\gradle-wrapper.properties |
+  Select-String -Pattern &#39;^distributionUrl=&#39;
+</code></pre></div>
+<p>正常的新工程应使用 <code>https://services.gradle.org/distributions/...</code>，不应出现 <code>file:///D:/...</code> 或指向旧电脑文件的相对路径。</p>
+<h2 id="12-确认或重新安装工程依赖"><a class="heading-anchor" href="#12-确认或重新安装工程依赖" aria-label="Link to section">#</a>12. 确认或重新安装工程依赖</h2>
+<p>第 11 节的 <code>init</code> 命令默认已经使用 npm 安装依赖并生成 <code>package-lock.json</code>。初始化成功后不需要立刻重复执行 <code>npm ci</code>，先运行环境检查：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_82_2026_0516
+npx react-native doctor
+</code></pre></div>
+<p>然后分别检查：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_77_2026_0515
+npx react-native doctor
+
+Set-Location D:\RN\An\RN_72_2026_0515
+npx react-native doctor
+</code></pre></div>
+<p>只有在 <code>node_modules</code> 缺失、依赖安装中断，或后来重新拉取了带 <code>package-lock.json</code> 的工程时，才在对应工程根目录执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">npm ci
+</code></pre></div>
+<p><code>npm ci</code> 会严格按锁文件重建 <code>node_modules</code>。不要把某一个工程的 <code>node_modules</code> 复制给另一个工程，也不要混用 Yarn 或 pnpm。</p>
+<p>如果 PowerShell 报 <code>npm.ps1</code> 或 <code>npx.ps1</code> 禁止执行，可以不修改系统执行策略，直接使用：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">npm.cmd ci
+npx.cmd react-native doctor
+</code></pre></div>
+<h2 id="13-首次构建和运行"><a class="heading-anchor" href="#13-首次构建和运行" aria-label="Link to section">#</a>13. 首次构建和运行</h2>
+<p>建议先验证最完整的 RN 0.82，再验证 RN 0.77 和 RN 0.72。</p>
+<h3 id="131-验证-gradlejdk-和-android-sdk"><a class="heading-anchor" href="#131-验证-gradlejdk-和-android-sdk" aria-label="Link to section">#</a>13.1 验证 Gradle、JDK 和 Android SDK</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_82_2026_0516\android
+.\gradlew.bat --version
+.\gradlew.bat assembleDebug --stacktrace
+</code></pre></div>
+<p>检查：</p>
+<ul>
+<li><code>.\gradlew.bat --version</code> 显示 Gradle 9.0.0。</li>
+<li>JVM 显示 Java 17。</li>
+<li><code>assembleDebug</code> 最终显示 <code>BUILD SUCCESSFUL</code>。</li>
+<li>APK 默认生成在：</li>
+</ul>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">D:\RN\An\RN_82_2026_0516\android\app\build\outputs\apk\debug\app-debug.apk
+</code></pre></div>
+<p>随后分别验证：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_77_2026_0515\android
+.\gradlew.bat --version
+.\gradlew.bat assembleDebug --stacktrace
+
+Set-Location D:\RN\An\RN_72_2026_0515\android
+.\gradlew.bat --version
+.\gradlew.bat assembleDebug --stacktrace
+</code></pre></div>
+<p>预期 Wrapper 版本分别为 8.10.2 和 8.0.1。第一次构建需要下载 Maven 依赖并编译 C/C++，耗时较长属于正常现象。</p>
+<h3 id="132-运行-react-native-开发包"><a class="heading-anchor" href="#132-运行-react-native-开发包" aria-label="Link to section">#</a>13.2 运行 React Native 开发包</h3>
+<p>先启动模拟器，或连接已授权的真机，然后执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb devices
+</code></pre></div>
+<p>终端一，在工程根目录启动 Metro：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_82_2026_0516
+npm start
+</code></pre></div>
+<p>终端二，在同一工程根目录安装并启动 Android 应用：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Set-Location D:\RN\An\RN_82_2026_0516
+npm run android
+</code></pre></div>
+<p>使用真机时，如果应用无法连接 Metro，再执行：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb reverse tcp:8081 tcp:8081
+</code></pre></div>
+<p>RN 0.77 和 RN 0.72 的运行方式相同，只需切换到各自工程根目录。不要同时启动多个占用 8081 端口的 Metro 进程。</p>
+<h2 id="14-常见问题"><a class="heading-anchor" href="#14-常见问题" aria-label="Link to section">#</a>14. 常见问题</h2>
+<h3 id="sdk-location-not-found"><a class="heading-anchor" href="#sdk-location-not-found" aria-label="Link to section">#</a><code>SDK location not found</code></h3>
+<p>先确认：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">$env:ANDROID_HOME
+Test-Path &quot;$env:ANDROID_HOME\platform-tools\adb.exe&quot;
+</code></pre></div>
+<p>如果必须使用 <code>local.properties</code>，在对应工程的 <code>android\local.properties</code> 中写入机器的真实路径，例如：</p>
+<div class="code-frame"><span class="code-frame__label">properties</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-properties">sdk.dir=C\:\\Users\\你的用户名\\AppData\\Local\\Android\\Sdk
+</code></pre></div>
+<p>该文件包含机器路径，三个工程均已将其加入 <code>.gitignore</code>，不要提交。</p>
+<h3 id="android-gradle-plugin-requires-java-17"><a class="heading-anchor" href="#android-gradle-plugin-requires-java-17" aria-label="Link to section">#</a><code>Android Gradle plugin requires Java 17</code></h3>
+<ul>
+<li>确认 <code>java -version</code> 为 17。</li>
+<li>确认 <code>JAVA_HOME</code> 指向 JDK 17 根目录。</li>
+<li>确认 Android Studio 的 <strong>Gradle JDK</strong> 也选择 JDK 17。</li>
+<li>关闭旧终端和 Android Studio 后重新打开。</li>
+</ul>
+<h3 id="failed-to-find-build-tools-revision-或-androidjar-不存在"><a class="heading-anchor" href="#failed-to-find-build-tools-revision-或-androidjar-不存在" aria-label="Link to section">#</a><code>Failed to find Build Tools revision ...</code> 或 <code>android.jar</code> 不存在</h3>
+<p>在 SDK Manager 中打开 <strong>Show Package Details</strong>，核对是否安装了对应的 Platform 和 Build-Tools：</p>
+<ul>
+<li>RN 0.72：Platform 33、Build-Tools 33.0.0</li>
+<li>RN 0.77：Platform 35、Build-Tools 35.0.0</li>
+<li>RN 0.82：Platform 36、Build-Tools 36.0.0</li>
+</ul>
+<h3 id="ndk-或-cmake-错误"><a class="heading-anchor" href="#ndk-或-cmake-错误" aria-label="Link to section">#</a>NDK 或 CMake 错误</h3>
+<p>确认以下目录存在：</p>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">Test-Path &quot;$env:ANDROID_HOME\ndk\23.1.7779620&quot;
+Test-Path &quot;$env:ANDROID_HOME\ndk\27.1.12297006&quot;
+Test-Path &quot;$env:ANDROID_HOME\cmake\3.22.1&quot;
+</code></pre></div>
+<p>若缺失，通过 SDK Manager 的 <strong>Show Package Details</strong> 安装精确版本。不要用一个“最新版 NDK”替代工程声明的版本。</p>
+<h3 id="gradle-wrapper-下载失败或仍指向旧电脑"><a class="heading-anchor" href="#gradle-wrapper-下载失败或仍指向旧电脑" aria-label="Link to section">#</a>Gradle Wrapper 下载失败或仍指向旧电脑</h3>
+<p>查看对应工程的：</p>
+<div class="code-frame"><span class="code-frame__label">text</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-text">android\gradle\wrapper\gradle-wrapper.properties
+</code></pre></div>
+<p>通过第 11 节命令新生成的工程应使用 <code>https://services.gradle.org/distributions/...</code>。如果看到 <code>file:///D:/...</code>、<code>../../../gradle-dist/...</code> 或其他旧电脑路径，说明当前目录不是干净生成的官方模板，或者配置被本地修改过；应重新核对生成过程，不要通过复制旧电脑 ZIP 来补环境。</p>
+<p>首次执行 <code>gradlew.bat</code> 会联网下载工程声明的 Gradle 版本。无需安装全局 Gradle；下载失败时检查网络、代理和 <code>services.gradle.org</code> 的访问权限。</p>
+<h3 id="adb-无法识别"><a class="heading-anchor" href="#adb-无法识别" aria-label="Link to section">#</a><code>adb</code> 无法识别</h3>
+<ul>
+<li>确认已安装 Android SDK Platform-Tools。</li>
+<li>确认 <code>%ANDROID_HOME%\platform-tools</code> 已加入 <code>Path</code>。</li>
+<li>重新打开终端。</li>
+</ul>
+<h3 id="真机显示-unauthorized-或-offline"><a class="heading-anchor" href="#真机显示-unauthorized-或-offline" aria-label="Link to section">#</a>真机显示 <code>unauthorized</code> 或 <code>offline</code></h3>
+<ul>
+<li>解锁手机并接受 USB 调试 RSA 授权。</li>
+<li>更换支持数据传输的 USB 线或 USB 口。</li>
+<li>安装对应品牌的 OEM USB 驱动。</li>
+<li>执行 <code>adb kill-server</code>、<code>adb start-server</code> 后重新连接。</li>
+</ul>
+<h3 id="模拟器很慢或无法启动"><a class="heading-anchor" href="#模拟器很慢或无法启动" aria-label="Link to section">#</a>模拟器很慢或无法启动</h3>
+<ul>
+<li>BIOS/UEFI 中开启 VT-x 或 AMD-V/SVM。</li>
+<li>Windows 功能中启用 Windows Hypervisor Platform 并重启。</li>
+<li>执行 <code>emulator -accel-check</code>。</li>
+<li>不要同时运行与虚拟化冲突的其他虚拟机软件。</li>
+<li>电脑资源不足时改用 Android 真机。</li>
+</ul>
+<h3 id="应用已安装但提示无法连接-metro"><a class="heading-anchor" href="#应用已安装但提示无法连接-metro" aria-label="Link to section">#</a>应用已安装，但提示无法连接 Metro</h3>
+<div class="code-frame"><span class="code-frame__label">powershell</span><button class="copy-button" type="button" data-copy-code>Copy</button><pre><code class="language-powershell">adb reverse tcp:8081 tcp:8081
+adb devices
+</code></pre></div>
+<p>同时确认工程根目录的 <code>npm start</code> 仍在运行，且没有其他进程占用 8081。</p>
+<h3 id="android-studio-提示升级-agpgradle"><a class="heading-anchor" href="#android-studio-提示升级-agpgradle" aria-label="Link to section">#</a>Android Studio 提示升级 AGP/Gradle</h3>
+<p>环境搭建阶段不要自动升级。三个工程已经固定了不同 AGP、Gradle、SDK 和 NDK 组合；升级属于工程改造，需要单独评估和回归测试。</p>
+<h3 id="npm-或-gradle-下载超时"><a class="heading-anchor" href="#npm-或-gradle-下载超时" aria-label="Link to section">#</a>npm 或 Gradle 下载超时</h3>
+<p>首次安装需要访问 npm Registry、Google Maven、Maven Central 等服务。优先检查公司代理、防火墙、证书和网络权限，不要随意替换工程仓库地址或锁文件。</p>
+<h2 id="15-最终验收清单"><a class="heading-anchor" href="#15-最终验收清单" aria-label="Link to section">#</a>15. 最终验收清单</h2>
+<p>新电脑满足以下全部条件，才算 RN Android 环境搭建完成：</p>
+<ul>
+<li><input disabled="" type="checkbox"> <code>git --version</code> 正常。</li>
+<li><input disabled="" type="checkbox"> 设备现有 <code>node --version</code> 不低于 20.19.4，<code>npm --version</code>、<code>npx --version</code> 正常。</li>
+<li><input disabled="" type="checkbox"> 三个工程均由第 11 节命令重新生成，RN 版本分别为 0.72.17、0.77.0、0.82.0。</li>
+<li><input disabled="" type="checkbox"> 三个 Gradle Wrapper 均未引用旧电脑的本地 ZIP 路径。</li>
+<li><input disabled="" type="checkbox"> <code>java -version</code> 和 <code>javac -version</code> 均为 17。</li>
+<li><input disabled="" type="checkbox"> <code>JAVA_HOME</code>、<code>ANDROID_HOME</code> 指向真实目录。</li>
+<li><input disabled="" type="checkbox"> <code>adb version</code>、<code>sdkmanager --version</code> 正常。</li>
+<li><input disabled="" type="checkbox"> API 33、35、36 已安装。</li>
+<li><input disabled="" type="checkbox"> Build-Tools 33.0.0、35.0.0、36.0.0 已安装。</li>
+<li><input disabled="" type="checkbox"> NDK 23.1.7779620、27.1.12297006 和 CMake 3.22.1 已安装。</li>
+<li><input disabled="" type="checkbox"> <code>adb devices</code> 至少有一个状态为 <code>device</code> 的模拟器或真机。</li>
+<li><input disabled="" type="checkbox"> 三个工程的 <code>.\gradlew.bat --version</code> 均能运行。</li>
+<li><input disabled="" type="checkbox"> 三个工程的 <code>.\gradlew.bat assembleDebug</code> 均显示 <code>BUILD SUCCESSFUL</code>。</li>
+<li><input disabled="" type="checkbox"> <code>npm start</code> 能启动 Metro。</li>
+<li><input disabled="" type="checkbox"> <code>npm run android</code> 能安装并打开应用。</li>
+</ul>
+<h2 id="16-官方参考资料"><a class="heading-anchor" href="#16-官方参考资料" aria-label="Link to section">#</a>16. 官方参考资料</h2>
+<ul>
+<li><a href="https://reactnative.dev/docs/0.82/set-up-your-environment">React Native 0.82：Set Up Your Environment</a></li>
+<li><a href="https://reactnative.dev/docs/0.77/set-up-your-environment">React Native 0.77：Set Up Your Environment</a></li>
+<li><a href="https://reactnative.dev/docs/0.82/running-on-device">React Native 0.82：Running On Device</a></li>
+<li><a href="https://github.com/react-native-community/cli">React Native Community CLI</a></li>
+<li><a href="https://developer.android.com/studio">Android Studio：下载</a></li>
+<li><a href="https://developer.android.com/studio/install">Android Studio：Windows 安装与系统要求</a></li>
+<li><a href="https://developer.android.com/studio/intro/update">Android SDK Manager 与必需工具</a></li>
+<li><a href="https://developer.android.com/tools/variables">Android SDK 环境变量</a></li>
+<li><a href="https://developer.android.com/studio/projects/install-ndk">安装指定 NDK 与 CMake</a></li>
+<li><a href="https://developer.android.com/studio/run/managing-avds">创建和管理 Android Virtual Device</a></li>
+<li><a href="https://developer.android.com/studio/run/emulator-acceleration">Windows 模拟器硬件加速</a></li>
+<li><a href="https://developer.android.com/studio/run/device">连接 Android 真机</a></li>
+<li><a href="https://developer.android.com/build/jdks">Android 构建中的 JDK 版本</a></li>
+<li><a href="https://developer.android.com/build/releases/about-agp">Android Gradle Plugin 与 Android Studio 兼容性</a></li>
+<li><a href="https://docs.gradle.org/current/userguide/gradle_wrapper.html">Gradle Wrapper 官方说明</a></li>
+<li><a href="https://learn.microsoft.com/java/openjdk/download">Microsoft Build of OpenJDK 17 下载</a></li>
+<li><a href="https://nodejs.org/en/download">Node.js 官方下载</a></li>
+</ul>
+
+</article><nav class="doc-pagination" aria-label="Document navigation"><a href="react-native-android-trace.html"><small>Previous</small><strong>RN Android Trace</strong></a><span></span></nav></main><aside class="doc-toc" aria-label="Table of contents"><p class="side-label">On this page</p>
+<a href="#1-已有软件与仍需安装的软件" data-level="2">1. 已有软件与仍需安装的软件</a>
+<a href="#设备已经安装只需检查" data-level="3">设备已经安装，只需检查</a>
+<a href="#仍需安装" data-level="3">仍需安装</a>
+<a href="#不需要单独安装" data-level="3">不需要单独安装</a>
+<a href="#2-本地三个工程的真实版本要求" data-level="2">2. 本地三个工程的真实版本要求</a>
+<a href="#3-安装前检查电脑" data-level="2">3. 安装前检查电脑</a>
+<a href="#系统和硬件" data-level="3">系统和硬件</a>
+<a href="#新电脑推荐执行顺序" data-level="3">新电脑推荐执行顺序</a>
+<a href="#建议目录" data-level="3">建议目录</a>
+<a href="#4-检查设备现有的-git" data-level="2">4. 检查设备现有的 Git</a>
+<a href="#5-检查设备现有的-nodejsnpm-和-npx" data-level="2">5. 检查设备现有的 Node.js、npm 和 npx</a>
+<a href="#6-安装-jdk-17" data-level="2">6. 安装 JDK 17</a>
+<a href="#7-安装-android-studio" data-level="2">7. 安装 Android Studio</a>
+<a href="#统一-android-studio-与命令行的-jdk" data-level="3">统一 Android Studio 与命令行的 JDK</a>
+<a href="#8-安装完整-android-sdkndk-和-cmake" data-level="2">8. 安装完整 Android SDK、NDK 和 CMake</a>
+<a href="#81-sdk-platforms" data-level="3">8.1 SDK Platforms</a>
+<a href="#82-sdk-tools" data-level="3">8.2 SDK Tools</a>
+<a href="#83-可选用-sdkmanager-精确补装" data-level="3">8.3 可选：用 sdkmanager 精确补装</a>
+<a href="#9-配置-windows-环境变量" data-level="2">9. 配置 Windows 环境变量</a>
+<a href="#java-home" data-level="3">JAVA_HOME</a>
+<a href="#android-home" data-level="3">ANDROID_HOME</a>
+<a href="#path" data-level="3">Path</a>
+<a href="#验证环境变量" data-level="3">验证环境变量</a>
+<a href="#10-准备模拟器或-android-真机" data-level="2">10. 准备模拟器或 Android 真机</a>
+<a href="#101-使用-android-模拟器" data-level="3">10.1 使用 Android 模拟器</a>
+<a href="#102-使用-android-真机" data-level="3">10.2 使用 Android 真机</a>
+<a href="#11-在新电脑用命令拉取并生成三个工程" data-level="2">11. 在新电脑用命令拉取并生成三个工程</a>
+<a href="#111-前置条件" data-level="3">11.1 前置条件</a>
+<a href="#112-创建根目录" data-level="3">11.2 创建根目录</a>
+<a href="#113-拉取-rn-07217" data-level="3">11.3 拉取 RN 0.72.17</a>
+<a href="#114-拉取-rn-0770" data-level="3">11.4 拉取 RN 0.77.0</a>
+<a href="#115-拉取-rn-0820" data-level="3">11.5 拉取 RN 0.82.0</a>
+<a href="#116-验证拉取结果" data-level="3">11.6 验证拉取结果</a>
+<a href="#12-确认或重新安装工程依赖" data-level="2">12. 确认或重新安装工程依赖</a>
+<a href="#13-首次构建和运行" data-level="2">13. 首次构建和运行</a>
+<a href="#131-验证-gradlejdk-和-android-sdk" data-level="3">13.1 验证 Gradle、JDK 和 Android SDK</a>
+<a href="#132-运行-react-native-开发包" data-level="3">13.2 运行 React Native 开发包</a>
+<a href="#14-常见问题" data-level="2">14. 常见问题</a>
+<a href="#sdk-location-not-found" data-level="3">SDK location not found</a>
+<a href="#android-gradle-plugin-requires-java-17" data-level="3">Android Gradle plugin requires Java 17</a>
+<a href="#failed-to-find-build-tools-revision-或-androidjar-不存在" data-level="3">Failed to find Build Tools revision ... 或 android.jar 不存在</a>
+<a href="#ndk-或-cmake-错误" data-level="3">NDK 或 CMake 错误</a>
+<a href="#gradle-wrapper-下载失败或仍指向旧电脑" data-level="3">Gradle Wrapper 下载失败或仍指向旧电脑</a>
+<a href="#adb-无法识别" data-level="3">adb 无法识别</a>
+<a href="#真机显示-unauthorized-或-offline" data-level="3">真机显示 unauthorized 或 offline</a>
+<a href="#模拟器很慢或无法启动" data-level="3">模拟器很慢或无法启动</a>
+<a href="#应用已安装但提示无法连接-metro" data-level="3">应用已安装，但提示无法连接 Metro</a>
+<a href="#android-studio-提示升级-agpgradle" data-level="3">Android Studio 提示升级 AGP/Gradle</a>
+<a href="#npm-或-gradle-下载超时" data-level="3">npm 或 Gradle 下载超时</a>
+<a href="#15-最终验收清单" data-level="2">15. 最终验收清单</a>
+<a href="#16-官方参考资料" data-level="2">16. 官方参考资料</a>
+</aside></div><button class="back-to-top" type="button" data-back-to-top aria-label="Back to top">?</button><script src="../../assets/site.js"></script></body></html>
