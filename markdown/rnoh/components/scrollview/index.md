@@ -10,4 +10,6 @@
 
 对应的 HTML 阅读版位于 [`docs/rnoh/components/scrollview/`](../../../../docs/rnoh/components/scrollview/index.html)。
 
+ScrollView 的功能问题案例位于[功能 / ScrollView](../../features/scrollview/index.md)。
+
 [返回 RNOH 组件 Markdown 目录](../index.md)

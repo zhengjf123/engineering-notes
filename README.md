@@ -13,36 +13,61 @@
 
 ```text
 engineering-notes/
-??? index.html
-??? README.md
-??? AGENTS.md
-??? assets/
-?   ??? site.js
-?   ??? styles.css
-??? docs/
-?   ??? index.html
-?   ??? android/
-?   ?   ??? index.html
-?   ?   ??? react-native-android-trace.html
-?   ?   ??? rn-android-environment-from-scratch.html
-?   ??? rnoh/
-?   ?   ??? issues/
-?   ?       ??? modal-click-no-response.html
-?   ?       ??? scrollview-friction-default-mismatch.html
-?   ??? cpp/
-??? markdown/
-?   ??? android/
-?   ?   ??? index.md
-?   ?   ??? react-native-android-trace.md
-?   ?   ??? rn-android-environment-from-scratch.md
-?   ??? rnoh/
-?   ?   ??? issues/
-?   ?       ??? modal-click-no-response.md
-?   ?       ??? scrollview-friction-default-mismatch.md
-?   ??? cpp/
-??? skills/
-??? tools/
-```
+├── index.html
+├── README.md
+├── AGENTS.md
+├── assets/
+│   ├── site.js
+│   └── styles.css
+├── docs/
+│   ├── index.html
+│   ├── android/
+│   │   ├── index.html
+│   │   ├── react-native-android-trace.html
+│   │   └── rn-android-environment-from-scratch.html
+│   ├── rnoh/
+│   │   ├── index.html
+│   │   ├── performance/
+│   │   │   └── rnoh-performance-issue-localization-guide.html
+│   │   ├── features/
+│   │   │   ├── index.html
+│   │   │   ├── modal/
+│   │   │   │   ├── index.html
+│   │   │   │   └── modal-click-no-response.html
+│   │   │   └── scrollview/
+│   │   │       ├── index.html
+│   │   │       └── scrollview-friction-default-mismatch.html
+│   │   └── components/
+│   │       ├── index.html
+│   │       └── scrollview/
+│   │           └── index.html
+│   └── cpp/
+├── markdown/
+│   ├── index.md
+│   ├── android/
+│   │   ├── index.md
+│   │   ├── react-native-android-trace.md
+│   │   └── rn-android-environment-from-scratch.md
+│   ├── rnoh/
+│   │   ├── index.md
+│   │   ├── performance/
+│   │   │   └── rnoh-performance-issue-localization-guide.md
+│   │   ├── features/
+│   │   │   ├── index.md
+│   │   │   ├── modal/
+│   │   │   │   ├── index.md
+│   │   │   │   └── modal-click-no-response.md
+│   │   │   └── scrollview/
+│   │   │       ├── index.md
+│   │   │       └── scrollview-friction-default-mismatch.md
+│   │   └── components/
+│   │       ├── index.md
+│   │       └── scrollview/
+│   │           └── index.md
+│   └── cpp/
+├── skills/
+└── tools/
+````
 
 `markdown/` 保存可编辑源文档，`docs/` 保存对应的 HTML 阅读版，`skills/` 保存可复用工作流。
 
@@ -74,7 +99,7 @@ docs/rnoh/components/scrollview/触摸序列与点击滚动关系.html
 
 1. RNOH 性能问题定位指导（基础篇）
 
-当前 RNOH 问题目录包含：
+当前 RNOH 功能目录包含：
 
 1. Modal 路由切换后点击无响应
 2. ScrollView 摩擦系数默认行为不一致

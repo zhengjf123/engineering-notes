@@ -4,48 +4,30 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="RNOH 0.72 Modal 路由切换后可见但点击无响应的问题分析、根因定位与原生侧 Patch。">
-    <title>RNOH 问题 01：Modal 路由切换后点击无响应 · Engineering Notes</title>
-    <link rel="stylesheet" href="../../../assets/styles.css">
+    <title>RNOH 功能 / Modal ? Engineering Notes</title>
+    <link rel="stylesheet" href="../../../../assets/styles.css">
   </head>
   <body class="doc-page">
     <a class="skip-link" href="#article">跳到正文</a>
     <header class="site-header">
       <div class="site-header__inner">
-        <a class="brand" href="../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
+        <a class="brand" href="../../../../index.html"><span class="brand__mark">EN</span><span>Engineering Notes</span></a>
         <button class="icon-button mobile-menu" type="button" data-menu-toggle aria-expanded="false" aria-label="打开导航">☰</button>
-        <nav class="site-nav" data-site-nav aria-label="主导航"><a href="../../android/index.html">Android</a>
-          <a href="../index.html" aria-current="page">RNOH</a>
-          <a href="../../cpp/index.html">C++</a>
-          <a href="../../../skills/index.html">Skills</a>
+        <nav class="site-nav" data-site-nav aria-label="主导航"><a href="../../../android/index.html">Android</a>
+          <a href="../../index.html" aria-current="page">RNOH</a>
+          <a href="../../../cpp/index.html">C++</a>
+          <a href="../../../../skills/index.html">Skills</a>
         </nav>
         <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题">☾</button>
       </div>
     </header>
 
     <div class="doc-shell">
-      <aside class="doc-sidebar" aria-label="RNOH 问题目录">
-        <div>
-          <p class="side-label">RNOH 问题</p>
-          <nav class="side-nav">
-            <a href="index.html">问题目录</a>
-            <a href="modal-click-no-response.html" aria-current="page">Modal 点击无响应</a>
-            <a href="scrollview-friction-default-mismatch.html">ScrollView 摩擦系数</a>
-          </nav>
-        </div>
-      </aside>
+      <aside class="doc-sidebar" aria-label="RNOH 功能 / Modal"><div><p class="side-label">RNOH / 功能</p><nav class="side-nav"><a href="../index.html">功能目录</a><a href="modal-click-no-response.html" aria-current="page">Modal 问题案例</a></nav></div></aside>
 
       <main class="doc-main">
-        <nav class="breadcrumb" aria-label="面包屑">
-          <a href="../../../index.html">首页</a><span aria-hidden="true">/</span>
-          <a href="../../index.html">文档</a><span aria-hidden="true">/</span>
-          <a href="../index.html">RNOH</a><span aria-hidden="true">/</span>
-          <a href="index.html">问题</a><span aria-hidden="true">/</span>
-          <span>Modal 点击无响应</span>
-        </nav>
-        <div class="doc-banner">
-          <span><strong>问题案例</strong> · RN 0.72 / RNOH Modal 触摸分发</span>
-          <span><a href="../../../markdown/rnoh/issues/modal-click-no-response.md">Markdown 源文件</a> · <a href="index.html">返回问题目录</a></span>
-        </div>
+        <nav class="breadcrumb" aria-label="Breadcrumb"><a href="../../../../index.html">Home</a><span aria-hidden="true">/</span><a href="../../../index.html">Docs</a><span aria-hidden="true">/</span><a href="../../index.html">RNOH</a><span aria-hidden="true">/</span><a href="../index.html">功能</a><span aria-hidden="true">/</span><span>Modal</span></nav>
+        <div class="doc-banner"><span><strong>功能问题案例</strong> ? RN 0.72 / RNOH Modal</span><span><a href="../../../../markdown/rnoh/features/modal/modal-click-no-response.md">Markdown source</a> ? <a href="../index.html">返回功能目录</a></span></div>
         <article class="markdown-body" id="article">
 <h1 id="rnoh-问题-01-modal-路由切换后点击无响应">RNOH 问题 01：Modal 路由切换后点击无响应</h1>
 <blockquote>
@@ -367,10 +349,7 @@ Modal 是否可触摸
 <p>核心的两个 <code>can*</code> 修复已经在模拟器复现场景中确认能够恢复 Modal 按钮点击。最终增加的 <code>onArkUINodeTouchIntercept</code> 只负责让页面占位节点保持补丁前行为，不参与 Dialog 内部事件分发。</p>
 
         </article>
-        <nav class="doc-pagination" aria-label="上一篇和下一篇">
-          <span></span>
-          <a href="scrollview-friction-default-mismatch.html" class="doc-pagination__next"><small>下一篇</small><strong>ScrollView 摩擦系数默认行为不一致</strong></a>
-        </nav>
+        <nav class="doc-pagination" aria-label="Document navigation"><a href="../index.html"><small>上一级</small><strong>Modal</strong></a><span></span></nav>
       </main>
 
       <aside class="doc-toc" aria-label="本文目录">
@@ -392,6 +371,6 @@ Modal 是否可触摸
     </div>
 
     <button class="back-to-top" type="button" data-back-to-top aria-label="返回顶部">↑</button>
-    <script src="../../../assets/site.js"></script>
+    <script src="../../../../assets/site.js"></script>
   </body>
 </html>
